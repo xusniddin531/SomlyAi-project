@@ -1395,6 +1395,8 @@ async def admin_user_ai_summary(request):
             
         from src.services.groq_service import process_text_groq
         
+        _interests = ', '.join(user['segment']['interests']) if user['segment']['interests'] else "Noma'lum"
+        
         # Build prompt
         prompt = f"""
 Sen malakali moliyaviy tahlilchi va psixologsan. 
@@ -1404,7 +1406,7 @@ Ma'lumotlar:
 - Yosh guruhi: {user['segment']['age_group']}
 - Jinsi: {user['segment']['gender']}
 - Yashash joyi: {user['segment']['region']}, {user['segment']['location']}
-- Qiziqishlari: {', '.join(user['segment']['interests']) if user['segment']['interests'] else 'Noma\'lum'}
+- Qiziqishlari: {_interests}
 - O'rtacha oylik daromadi: {user['financial']['avg_income']} UZS
 - O'rtacha oylik xarajati: {user['financial']['avg_expense']} UZS
 - Eng ko'p pul sarflaydigan kategoriya: {user['financial']['top_expense_cat']}
