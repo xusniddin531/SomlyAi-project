@@ -1,6 +1,4 @@
-[providers]
-  python = "3.11"
-  node = "20"
+providers = ["python", "node"]
 
 [phases.setup]
   nixPkgs = ["python311", "nodejs_20"]
