@@ -1,0 +1,11 @@
+node_modules
+webapp/node_modules
+webapp/dist
+.git
+.env
+logs
+temp
+__pycache__
+*.pyc
+.vscode
+.idea
