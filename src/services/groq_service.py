@@ -841,8 +841,9 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
         system_categories = system_categories or []
         
         # Kategoriyalar ro'yxatini formatlash
-        personal_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', 'Noma\'lum')}" for c in personal_categories[:10]])
-        system_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', 'Noma\'lum')}" for c in (system_categories or [])[:20]])
+        _default_name = "Noma'lum"
+        personal_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', _default_name)}" for c in personal_categories[:10]])
+        system_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', _default_name)}" for c in (system_categories or [])[:20]])
         
         messages = [
             {"role": "system", "content": (
