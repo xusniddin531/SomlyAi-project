@@ -11,6 +11,7 @@ Features:
 """
 
 import json
+import os
 import logging
 import asyncio
 import time
@@ -220,6 +221,7 @@ class GroqService:
     async def transcribe_audio_with_retry(self, file_path: str) -> str:
         attempts = 0
         max_retries = len(self.keys_stats) * 2
+        models_to_try = ["whisper-large-v3-turbo", "whisper-large-v3"]
 
         while attempts < max_retries:
             try:
@@ -227,21 +229,27 @@ class GroqService:
             except GroqQueueError:
                 raise
 
+            model = models_to_try[0] if attempts < max_retries // 2 else models_to_try[-1]
+
             try:
                 with open(file_path, "rb") as file:
-                    transcription = await ks.client.audio.transcriptions.create(
-                        file=(file_path, file.read()),
-                        model="whisper-large-v3-turbo",
-                        response_format="json",
-                        language="uz"
-                    )
+                    file_data = file.read()
+                
+                # Use filename with proper extension for Groq
+                fname = os.path.basename(file_path)
+                transcription = await ks.client.audio.transcriptions.create(
+                    file=(fname, file_data),
+                    model=model,
+                    response_format="json",
+                )
                 ks.requests_count += 1
                 ks.connection_errors = 0
+                logger.info(f"Transcription success (model={model}, key={ks.index+1}): {transcription.text[:80]}...")
                 return transcription.text
             except APIStatusError as e:
                 status_code = getattr(e, 'status_code', 0)
                 error_str = str(e)
-                logger.error(f"Groq Audio Error (key {ks.index+1}): {error_str}")
+                logger.error(f"Groq Audio Error (key {ks.index+1}, model={model}): {error_str}")
 
                 if status_code == 429 or "rate" in error_str.lower() or status_code == 403:
                     ks.status = "cooling"
