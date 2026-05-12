@@ -369,9 +369,9 @@ async def monitor_system_health(bot: Bot):
     # 2. Check Groq API
     try:
         from src.services.groq_service import groq_service
-        client = groq_service.get_client()
+        ks = groq_service.get_best_key()
         # Very lightweight check just to test connection
-        await client.models.list()
+        await ks.client.models.list()
     except Exception as e:
         errors.append(f"❌ Groq API ishlamayapti: {str(e)[:50]}")
         

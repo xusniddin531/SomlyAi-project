@@ -208,8 +208,8 @@ async def _detect_timezone_with_ai(country_name: str, lang: str) -> str:
 
     try:
         from src.services.groq_service import groq_service
-        client = groq_service.get_client()
-        response = await client.chat.completions.create(
+        ks = groq_service.get_best_key()
+        response = await ks.client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
