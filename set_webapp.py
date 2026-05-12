@@ -10,14 +10,14 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def main():
     bot = Bot(token=BOT_TOKEN)
-    url = "https://transcriptional-irma-blackly.ngrok-free.dev"
+    url = "https://somlyai-project-production.up.railway.app"
     try:
         await bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(text="Ochish", web_app=WebAppInfo(url=url))
         )
-        print("✅ Web App tugmasi ('Ochish') muvaffaqiyatli o'rnatildi!")
+        print("OK - Web App tugmasi muvaffaqiyatli o'rnatildi!")
     except Exception as e:
-        print(f"❌ Xatolik yuz berdi: {str(e)}")
+        print(f"XATO: {str(e)}")
     finally:
         await bot.session.close()
 

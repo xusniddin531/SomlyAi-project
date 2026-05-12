@@ -34,11 +34,13 @@ async def options_handler(request):
 
 @routes.get('/')
 async def root_handler(request):
+    # Production: serve React frontend if available
+    webapp_index = os.path.join(os.getcwd(), 'webapp', 'dist', 'index.html')
+    if os.path.exists(webapp_index):
+        return web.FileResponse(webapp_index)
     return web.Response(
         text="Somly AI API Backend is running.\n\n"
-             "It seems you pointed Ngrok to port 8000.\n"
-             "Please point Ngrok to port 3000 (Vite frontend) instead:\n"
-             "ngrok http 3000\n",
+             "Frontend not built yet. Run 'cd webapp && npm run build' first.\n",
         content_type="text/plain"
     )
 
