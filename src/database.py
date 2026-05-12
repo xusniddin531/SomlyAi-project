@@ -27,6 +27,7 @@ Debt structure:
 """
 
 from datetime import datetime, timedelta
+import os
 from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 from src import config
