@@ -362,7 +362,6 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
         )
     except GroqQueueError:
         await message.answer("⏳ Bir daqiqa, javobing tayyorlanmoqda...")
-        import asyncio
         asyncio.create_task(handle_queued_transaction(
             message, text, current_date, language, custom_cats_list, user_id, user_context, recent_txs, habits, state, all_balance_names, chat_history
         ))
@@ -376,7 +375,6 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
 
 
 async def handle_queued_transaction(message, text, current_date, language, custom_cats_list, user_id, user_context, recent_txs, habits, state, all_balance_names=None, chat_history=None):
-    import asyncio
     while True:
         try:
             data = await groq_service.parse_transaction(
