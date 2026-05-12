@@ -1140,6 +1140,10 @@ async def set_webapp_url(url: str):
     )
 
 async def get_webapp_url() -> str:
+    # Priority: env var > database > fallback
+    env_url = os.environ.get("WEBAPP_URL")
+    if env_url:
+        return env_url
     doc = await config_collection.find_one({"_id": "webapp_url"})
     if doc:
         return doc.get("url", "https://google.com")
