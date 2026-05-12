@@ -231,47 +231,6 @@ const AdminSettings = ({ token, onThemeToggle, isDark }) => {
           </div>
         </div>
 
-        {/* GROQ API HOLATI */}
-        <div className="card settings-card full-width">
-          <div className="settings-card-header">
-            <Cpu size={20} color="#3b82f6" />
-            <h3>Groq API Holati</h3>
-            <button className="btn-icon ml-auto" onClick={fetchAll} title="Yangilash"><RefreshCw size={16} /></button>
-          </div>
-          <div className="settings-card-body">
-            <div className="groq-keys-grid">
-              {groqKeys.map(k => (
-                <div key={k.index} className={`groq-key-item ${k.status}`}>
-                  <div className="groq-key-header">
-                    <span className="groq-key-name">Key {k.index}</span>
-                    <span className={`groq-key-status ${k.status}`}>
-                      {k.status === 'active' ? '✅ Aktiv' : k.status === 'cooling' ? '⚠️ Cooling' : '❌ Exhausted'}
-                    </span>
-                  </div>
-                  <div className="groq-key-stats">
-                    <span>So'rovlar: {k.total_requests}</span>
-                    <span>Xatolar: {k.total_errors}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* APP INFO */}
-        <div className="card settings-card">
-          <div className="settings-card-header">
-            <Info size={20} color="#8b5cf6" />
-            <h3>Ilova haqida</h3>
-          </div>
-          <div className="settings-card-body">
-            <div className="settings-row"><span className="settings-label">Versiya</span><span className="settings-value">2.1.0</span></div>
-            <div className="settings-row"><span className="settings-label">Framework</span><span className="settings-value">React + Vite</span></div>
-            <div className="settings-row"><span className="settings-label">Backend</span><span className="settings-value">Python (aiogram)</span></div>
-            <div className="settings-row"><span className="settings-label">Database</span><span className="settings-value">MongoDB</span></div>
-            <div className="settings-row"><span className="settings-label">AI</span><span className="settings-value">Groq (Llama 3.1)</span></div>
-          </div>
-        </div>
       </div>
 
       {/* PIN MODAL */}
