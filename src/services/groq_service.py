@@ -78,7 +78,7 @@ class GroqService:
             self.keys_stats.append(KeyStats(
                 key=key, 
                 index=i, 
-                client=AsyncGroq(api_key=key)
+                client=AsyncGroq(api_key=key, timeout=15.0)
             ))
 
     async def alert_admin(self, message: str):
@@ -626,7 +626,7 @@ FAQAT JSON QAYTAR.
                 messages,
                 response_format={"type": "json_object"},
                 temperature=0.1,
-                max_tokens=3000,
+                max_tokens=1500,
             )
         except GroqQueueError:
             # Let the caller handle the queueing

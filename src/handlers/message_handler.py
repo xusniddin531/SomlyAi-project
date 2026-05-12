@@ -332,18 +332,19 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     user = await get_user(user_id)
     language = user.get("language", "uz")
 
-    # Fetch context
-    custom_cats = await get_custom_categories(user_id)
+    # Fetch context — parallel for speed
+    custom_cats, user_context, recent_txs, habits, all_balance_names, chat_history = await asyncio.gather(
+        get_custom_categories(user_id),
+        get_user_financial_context(user_id),
+        get_recent_transactions_context(user_id),
+        get_user_habits(user_id),
+        get_user_all_balance_names(user_id),
+        get_chat_history(user_id),
+    )
     custom_cats_list = [{"emoji": c["emoji"], "name": c["name"], "type": c["type"]} for c in custom_cats] if custom_cats else None
     
-    user_context = await get_user_financial_context(user_id)
-    recent_txs = await get_recent_transactions_context(user_id)
-    habits = await get_user_habits(user_id)
-    all_balance_names = await get_user_all_balance_names(user_id)
-    
-    # Context memory
-    chat_history = await get_chat_history(user_id)
-    await save_chat_message(user_id, "user", text)
+    # Save user message to history (fire-and-forget)
+    asyncio.create_task(save_chat_message(user_id, "user", text))
 
     # ─── 1. Send to AI ───
     try:

@@ -1140,15 +1140,25 @@ async def set_webapp_url(url: str):
         upsert=True
     )
 
+_webapp_url_cache = {"url": None, "ts": 0}
+
 async def get_webapp_url() -> str:
+    import time
+    now = time.time()
+    # Return cached value if fresh (60 seconds)
+    if _webapp_url_cache["url"] and (now - _webapp_url_cache["ts"]) < 60:
+        return _webapp_url_cache["url"]
     # Priority: env var > database > fallback
     env_url = os.environ.get("WEBAPP_URL")
     if env_url:
+        _webapp_url_cache["url"] = env_url
+        _webapp_url_cache["ts"] = now
         return env_url
     doc = await config_collection.find_one({"_id": "webapp_url"})
-    if doc:
-        return doc.get("url", "https://google.com")
-    return "https://google.com"
+    result = doc.get("url", "https://google.com") if doc else "https://google.com"
+    _webapp_url_cache["url"] = result
+    _webapp_url_cache["ts"] = now
+    return result
 
 
 # ═══════════════════════════════════════
