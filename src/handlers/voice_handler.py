@@ -47,20 +47,18 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
     user = await get_user(user_id)
     lang = user.get("language", "uz")
 
-    status_msg = await message.answer("⏳")
+    status_msg = await message.answer(t(lang, "voice_processing"))
 
     # ── Check voice duration ──
     duration = message.voice.duration or 0
     if duration < 1:  # Less than 1 second (~0.5s rounded)
         log_error(ErrorType.VOICE_TOO_SHORT, f"Voice too short: {duration}s", user_id)
-        await status_msg.delete()
-        await message.answer("🎤 Ovoz juda qisqa, qaytadan yuboring")
+        await status_msg.edit_text("🎤 Ovoz juda qisqa, qaytadan yuboring")
         return
         
     if duration > 120:
         log_error(ErrorType.VOICE_TOO_SHORT, f"Voice too long: {duration}s", user_id)
-        await status_msg.delete()
-        await message.answer("🎤 Ovoz juda uzun.\nIltimos qisqaroq yuboring")
+        await status_msg.edit_text("🎤 Ovoz juda uzun.\nIltimos qisqaroq yuboring")
         return
 
     # ── Download voice file ──
@@ -74,8 +72,7 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         await bot.download_file(file_path, local_path)
     except Exception as e:
         log_error(ErrorType.VOICE_DOWNLOAD, f"Failed to download voice file", user_id, e)
-        await status_msg.delete()
-        await message.answer(t(lang, "err_voice_download"))
+        await status_msg.edit_text(t(lang, "err_voice_download"))
         return
 
     try:
@@ -83,31 +80,27 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         try:
             transcribed_text = await groq_service.transcribe_audio_with_retry(local_path)
         except GroqQueueError:
-            await status_msg.delete()
-            await message.answer(t(lang, "err_ai_busy"))
+            await status_msg.edit_text(t(lang, "err_ai_busy"))
             return
         except GroqServerError:
-            await status_msg.delete()
-            await message.answer(t(lang, "err_ai_down"))
+            await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except Exception as e:
             log_error(ErrorType.VOICE_WHISPER_FAIL, f"Whisper failed", user_id, e)
-            await status_msg.delete()
-            await message.answer(t(lang, "err_voice_whisper"))
+            await status_msg.edit_text(t(lang, "err_voice_whisper"))
             return
 
         # ── Check if transcription is empty/too short ──
         if not transcribed_text or len(transcribed_text.strip()) < 2:
             log_error(ErrorType.VOICE_WHISPER_FAIL, f"Empty transcription result", user_id)
-            await status_msg.delete()
-            await message.answer(t(lang, "err_voice_whisper"))
+            await status_msg.edit_text(t(lang, "err_voice_whisper"))
             return
             
         # ── Merge with Caption ──
         if message.caption:
             transcribed_text = f"{transcribed_text}. Qo'shimcha izoh: {message.caption}"
 
-        # ── Delete sticker and process ──
+        # ── Delete status message and process ──
         await status_msg.delete()
 
         # Tranzaksiya pipeline'ga yuborish
@@ -116,8 +109,7 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
     except Exception as e:
         log_error(ErrorType.UNKNOWN, f"Voice processing error", user_id, e)
         try:
-            await status_msg.delete()
-            await message.answer(t(lang, "err_general"))
+            await status_msg.edit_text(t(lang, "err_general"))
         except Exception:
             pass
     finally:

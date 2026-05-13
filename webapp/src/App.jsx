@@ -161,6 +161,32 @@ const App = () => {
     };
   }, []);
 
+  // Theme Management
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('user_theme');
+    let defaultTheme = 'dark';
+    if (savedTheme) {
+      defaultTheme = savedTheme;
+    } else if (window.Telegram?.WebApp?.colorScheme) {
+      defaultTheme = window.Telegram.WebApp.colorScheme;
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+      defaultTheme = 'light';
+    }
+    
+    document.documentElement.setAttribute('data-theme', defaultTheme);
+
+    const handleThemeToggle = () => {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      const next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('user_theme', next);
+      window.dispatchEvent(new CustomEvent('theme_changed', { detail: next }));
+    };
+
+    window.addEventListener('theme_toggle', handleThemeToggle);
+    return () => window.removeEventListener('theme_toggle', handleThemeToggle);
+  }, []);
+
   return (
     <BrowserRouter>
       <AppContent initData={initData} isOffline={isOffline} wasOffline={wasOffline} isSyncing={isSyncing} />
@@ -197,7 +223,7 @@ const Sidebar = () => {
 
       <Link to="/profile" style={{ textDecoration: 'none', color: 'inherit' }}>
         <div style={{ padding: '16px', borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }} className="clickable">
-          <div style={{ width: 36, height: 36, background: '#3B82F6', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>H</div>
+          <div style={{ width: 36, height: 36, background: 'var(--primary)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 'bold' }}>H</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '14px', fontWeight: 600 }}>Husniddin</div>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Profil</div>
@@ -211,8 +237,8 @@ const Sidebar = () => {
 const NavItem = ({ to, icon, label, active }) => (
   <Link to={to} className="clickable" style={{ 
     display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', 
-    borderRadius: '8px', color: active ? '#fff' : 'var(--text-secondary)',
-    background: active ? 'rgba(255,255,255,0.05)' : 'transparent',
+    borderRadius: '8px', color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+    background: active ? 'var(--card)' : 'transparent',
     textDecoration: 'none', marginBottom: '4px', fontSize: '14px', fontWeight: 500
   }}>
     <span style={{ color: active ? 'var(--primary)' : 'inherit' }}>{icon}</span>

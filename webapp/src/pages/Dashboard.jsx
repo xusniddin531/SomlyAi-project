@@ -287,8 +287,8 @@ const DashboardPage = ({ initData }) => {
             onClick={() => navigate('/balances')}
             className="clickable"
             style={{ 
-              minWidth: '60px', height: '84px', borderRadius: '18px', background: 'rgba(255,255,255,0.06)', 
-              border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', 
+              minWidth: '60px', height: '84px', borderRadius: '18px', background: 'var(--card)', 
+              border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', 
               color: 'var(--text-secondary)', flexShrink: 0, cursor: 'pointer'
             }}
             title="Barchasini ko'rish"
@@ -328,9 +328,9 @@ const DashboardPage = ({ initData }) => {
         
         {/* Date Selector */}
         <div className="flex-between" style={{ marginBottom: '20px' }}>
-          <ChevronRight size={20} style={{ transform: 'rotate(180deg)', color: '#fff', cursor: 'pointer' }} />
-          <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>Apr 1 – Apr 20</span>
-          <ChevronRight size={20} color="#fff" style={{ cursor: 'pointer' }} />
+          <ChevronRight size={20} style={{ transform: 'rotate(180deg)', color: 'var(--text-primary)', cursor: 'pointer' }} />
+          <span style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>Apr 1 – Apr 20</span>
+          <ChevronRight size={20} color="var(--text-primary)" style={{ cursor: 'pointer' }} />
         </div>
 
         {/* Currency Filters */}
@@ -354,8 +354,9 @@ const DashboardPage = ({ initData }) => {
             <div key={t} className="clickable" onClick={() => setActiveStatTab(t)} style={{ 
               flex: 1, textAlign: 'center', padding: '10px 0', fontSize: '13px', fontWeight: '600', borderRadius: '10px',
               background: activeStatTab === t ? 'var(--card)' : 'transparent',
-              color: activeStatTab === t ? '#fff' : 'var(--text-secondary)',
-              cursor: 'pointer', transition: 'all 0.2s'
+              color: activeStatTab === t ? 'var(--text-primary)' : 'var(--text-secondary)',
+              cursor: 'pointer', transition: 'all 0.2s',
+              boxShadow: activeStatTab === t ? '0 2px 8px rgba(0,0,0,0.05)' : 'none'
             }}>
               {t}
             </div>
@@ -381,7 +382,7 @@ const DashboardPage = ({ initData }) => {
               </Pie>
             </PieChart>
           </ResponsiveContainer>
-          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', background: 'rgba(0,0,0,0.8)', padding: '12px 16px', borderRadius: '16px', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', background: 'var(--nav-bg)', padding: '12px 16px', borderRadius: '16px', backdropFilter: 'var(--glass-blur)', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
             <p style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Jami chiqim:</p>
             <p style={{ fontSize: '16px', fontWeight: 'bold', color: 'var(--danger)' }}>-{currentBal.chiqim.toLocaleString()} {activeStatCurrency}</p>
           </div>
@@ -413,7 +414,7 @@ const DashboardPage = ({ initData }) => {
                   {t.category.split(' ')[0]}
                 </div>
                 <div>
-                  <p style={{ fontWeight: '600', fontSize: '15px', color: '#fff', margin: 0 }}>{t.category.split(' ').slice(1).join(' ')}</p>
+                  <p style={{ fontWeight: '600', fontSize: '15px', color: 'var(--text-primary)', margin: 0 }}>{t.category.split(' ').slice(1).join(' ')}</p>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
                     {t.type === 'chiqim' ? 'Chiqim' : 'Kirim'} • {t.currency || 'UZS'}
                   </p>
