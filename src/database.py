@@ -1155,7 +1155,7 @@ async def get_webapp_url() -> str:
         _webapp_url_cache["ts"] = now
         return env_url
     doc = await config_collection.find_one({"_id": "webapp_url"})
-    result = doc.get("url", "https://google.com") if doc else "https://google.com"
+    result = doc.get("url", "https://somlyai-project-production.up.railway.app") if doc else "https://somlyai-project-production.up.railway.app"
     _webapp_url_cache["url"] = result
     _webapp_url_cache["ts"] = now
     return result
