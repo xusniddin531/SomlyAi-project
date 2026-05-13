@@ -191,25 +191,6 @@ const AdminSettings = ({ token, onThemeToggle, isDark }) => {
           </div>
         </div>
 
-        {/* QIZIQISH CHASTOTASI */}
-        <div className="card settings-card">
-          <div className="settings-card-header">
-            <Heart size={20} color="#ec4899" />
-            <h3>Qiziqish savol chastotasi</h3>
-          </div>
-          <div className="settings-card-body">
-            <div className="settings-toggle-group">
-              <button 
-                className={`settings-toggle-btn ${settings.interest_freq === '1w' ? 'active' : ''}`}
-                onClick={() => updateSetting("interest_freq", "1w")}
-              >1 hafta</button>
-              <button 
-                className={`settings-toggle-btn ${settings.interest_freq === '1m' ? 'active' : ''}`}
-                onClick={() => updateSetting("interest_freq", "1m")}
-              >1 oy</button>
-            </div>
-          </div>
-        </div>
 
         {/* DARK / LIGHT MODE */}
         <div className="card settings-card">

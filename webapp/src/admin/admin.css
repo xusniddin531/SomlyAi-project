@@ -2514,3 +2514,135 @@
 .user-activity-summary strong {
   color: var(--text);
 }
+
+/* ═══════════════════════════════════════
+   SPENDING INSIGHTS PAGE
+   ═══════════════════════════════════════ */
+.spending-filters {
+  margin-top: 16px;
+}
+
+.spending-cats-grid {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spending-cat-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.spending-cat-item:last-child {
+  border-bottom: none;
+}
+
+.spending-cat-rank {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--text-muted);
+  min-width: 28px;
+}
+
+.spending-cat-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.spending-cat-name {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+
+.spending-cat-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.spending-cat-bar {
+  width: 80px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.spending-cat-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #f59e0b, #ef4444);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.spending-users-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.spending-user-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.spending-user-row:last-child {
+  border-bottom: none;
+}
+
+.spending-user-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 120px;
+}
+
+.spending-user-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.spending-user-handle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.spending-user-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.spending-tag {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.spending-tag.tag-0 {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.spending-tag.tag-1 {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.spending-tag.tag-2 {
+  background: rgba(99, 102, 241, 0.15);
+  color: #6366f1;
+}

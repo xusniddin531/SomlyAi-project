@@ -48,93 +48,6 @@ async def build_webapp_keyboard(page: str = "/", lang: str = "uz", button_text: 
     ])
 
 
-CATEGORY_INTEREST_MAPPING = {
-    "Sport": "sport", "Fitnes": "sport",
-    "Restoran": "food", "Kafe": "food", "Oziq-ovqat": "food",
-    "Kiyim-kechak": "fashion", "Kiyim": "fashion",
-    "Sayohat": "travel",
-    "Ta'lim": "education", "Kurslar": "education",
-    "O'yin-kulgi": "entertainment",
-    "Mashina": "auto", "Avtomobil": "auto",
-    "Sog'liq": "health", "Tibbiyot": "health"
-}
-
-INTEREST_QUESTIONS = {
-    "sport": "⚽ Sport va fitnesga qiziqasizmi?",
-    "food": "🍔 Restoran va mazali taomlarga qiziqasizmi?",
-    "fashion": "👗 Moda va yangi kiyimlarga qiziqasizmi?",
-    "travel": "✈️ Sayohat qilishni yoqtirasizmi?",
-    "education": "📚 O'z ustingizda ishlash, ta'lim olishga qiziqasizmi?",
-    "entertainment": "🎬 Kino, konsert va ko'ngilochar joylarga qatnaysizmi?",
-    "auto": "🚗 Avtomobillar va texnikalarga qiziqasizmi?",
-    "health": "🏥 Sog'lom turmush tarzi va tibbiyot qiziqtiradimi?"
-}
-
-async def check_and_ask_interest(user_id: int, category: str, bot, message):
-    try:
-        from src.database import get_user, users_collection, transactions_collection, db
-        interest = CATEGORY_INTEREST_MAPPING.get(category)
-        if not interest:
-            # Check if category contains any mapped key
-            for k, v in CATEGORY_INTEREST_MAPPING.items():
-                if k.lower() in category.lower():
-                    interest = v
-                    break
-                    
-        if not interest:
-            return
-            
-        user = await get_user(user_id)
-        if not user: return
-        
-        interests = user.get("interests", [])
-        rejected_interests = user.get("rejected_interests", [])
-        
-        if interest in interests or interest in rejected_interests:
-            return
-            
-        # Check transaction count for this category/interest
-        # We need to find all transactions that would map to this interest
-        matched_cats = [k for k, v in CATEGORY_INTEREST_MAPPING.items() if v == interest]
-        
-        count = await transactions_collection.count_documents({
-            "telegram_id": user_id,
-            "category": {"$in": matched_cats}
-        })
-        
-        if count >= 2:
-            # Check last question date
-            last_date = user.get("last_interest_question_date")
-            from datetime import datetime, timedelta
-            
-            # Fetch frequency from settings
-            settings = await db["admin_settings"].find_one({"key": "interest_freq"})
-            freq = settings["value"] if settings else "1w"
-            
-            days_wait = 7 if freq == "1w" else 30
-            
-            if last_date and (datetime.utcnow() - last_date).days < days_wait:
-                return
-                
-            question = INTEREST_QUESTIONS.get(interest, f"Bu {category}ga qiziqasizmi?")
-            
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="✅ Ha", callback_data=f"interest_yes:{interest}"),
-                    InlineKeyboardButton(text="❌ Yo'q", callback_data=f"interest_no:{interest}")
-                ]
-            ])
-            
-            await message.answer(question, reply_markup=kb)
-            
-            # Update last_interest_question_date
-            await users_collection.update_one(
-                {"telegram_id": user_id},
-                {"$set": {"last_interest_question_date": datetime.utcnow()}}
-            )
-            
-    except Exception as e:
-        logger.error(f"Error in check_and_ask_interest: {e}")
 
 
 def format_number(num: float) -> str:
@@ -741,7 +654,7 @@ async def process_extracted_transactions(message: Message, transactions: list, u
                     new_balance = await update_user_balance(user_id, currency, amount, is_income=True)
                 
                 tx_id = await insert_transaction(tx_payload)
-                asyncio.create_task(check_and_ask_interest(user_id, enhanced_category, message.bot, message))
+
             except Exception as e:
                 log_error(ErrorType.MONGODB_GENERAL, f"Failed to save income transaction", user_id, e)
                 await message.answer(t(language, "err_db_connection"))
@@ -829,7 +742,7 @@ async def process_extracted_transactions(message: Message, transactions: list, u
                     new_balance = await update_user_balance(user_id, currency, amount, is_income=False)
                 
                 tx_id = await insert_transaction(tx_payload)
-                asyncio.create_task(check_and_ask_interest(user_id, enhanced_category, message.bot, message))
+
                 
                 if bal_type != 'shared':
                     monthly_total = await get_monthly_expense(user_id, currency)
@@ -907,11 +820,7 @@ async def process_extracted_transactions(message: Message, transactions: list, u
             await message.answer(msg, reply_markup=tx_kb)
             await save_chat_message(user_id, "assistant", msg, tx_id=str(tx_id))
 
-            # ─── QIZIQISHLAR TIZIMI (Interest Tracking) ───
-            try:
-                await _check_and_ask_interest(message, user_id, enhanced_category, language)
-            except Exception as e:
-                logger.warning(f"Interest tracking error for {user_id}: {e}")
+
 
         # ════════════════════════════
         #  QARZ
@@ -1438,31 +1347,7 @@ async def handle_tx_back(callback: CallbackQuery):
     await callback.answer()
     
     
-# ═══════════════════════════════════════
-# QIZIQISH SAVOLLARI CALLBACKS
-# ═══════════════════════════════════════
 
-@router.callback_query(F.data.startswith("interest_yes:"))
-async def handle_interest_yes(callback: CallbackQuery):
-    interest = callback.data.split(":")[1]
-    from src.database import users_collection
-    await users_collection.update_one(
-        {"telegram_id": callback.from_user.id},
-        {"$addToSet": {"interests": interest}}
-    )
-    await callback.message.edit_text(callback.message.text + "\n\n✅ Qiziqish saqlandi.")
-    await callback.answer("Qiziqishlaringizga qo'shildi!")
-
-@router.callback_query(F.data.startswith("interest_no:"))
-async def handle_interest_no(callback: CallbackQuery):
-    interest = callback.data.split(":")[1]
-    from src.database import users_collection
-    await users_collection.update_one(
-        {"telegram_id": callback.from_user.id},
-        {"$addToSet": {"rejected_interests": interest}}
-    )
-    await callback.message.edit_text(callback.message.text + "\n\n❌ Tushunarli, bu haqida boshqa so'ramaymiz.")
-    await callback.answer("Qabul qilindi!")
 
 # ═══════════════════════════════════════
 # SMART REMINDER CALLBACKS
@@ -1624,73 +1509,3 @@ async def confirm_past_date_no(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TransactionAmbiguity.waiting_for_debt_date)
 
 
-# ═══════════════════════════════════════
-# QIZIQISHLAR TIZIMI (Interest Detection)
-# ═══════════════════════════════════════
-async def _check_and_ask_interest(message, user_id: int, category: str, language: str):
-    """
-    Chiqim tranzaksiyasidan keyin qiziqish tekshiruvi.
-    Agar biror kategoriyaga 2+ marta xarajat qilingan bo'lsa
-    va bu kategoriya haqida avval savol berilmagan bo'lsa,
-    foydalanuvchiga qiziqish savoli yuboriladi.
-    """
-    from src.database import get_user, get_user_category_counts, add_interest_query
-    from src.handlers.segment_handler import build_interest_keyboard
-
-    user = await get_user(user_id)
-
-    # Agar segmentatsiya hali tugamagan bo'lsa, qiziqish savolini bermay turamiz
-    if user.get("segmentation_stage", 0) < 2 and user.get("segmentation_stage") is not None:
-        # segmentation_stage None bo'lsa — eski user, o'tkazib yuboramiz
-        if user.get("segmentation_stage") is not None:
-            return
-
-    # Oxirgi qiziqish savoli qachon berilganini tekshirish (haftada 1 marta)
-    last_interest_ask = user.get("last_interest_ask")
-    if last_interest_ask:
-        from datetime import datetime, timedelta
-        if datetime.utcnow() - last_interest_ask < timedelta(days=7):
-            return
-
-    # Avval savol berilgan kategoriyalar
-    interest_queries = user.get("interest_queries", [])
-    existing_interests = user.get("interests", [])
-
-    # 2+ marta xarajat qilingan kategoriyalarni topish
-    category_counts = await get_user_category_counts(user_id, days=30)
-
-    for cat_data in category_counts:
-        cat_name = cat_data["_id"]  # "🍔 Fastfood" kabi
-        cat_count = cat_data["count"]
-
-        if cat_count < 2:
-            continue
-
-        # Emoji ni ajratib olish
-        parts = cat_name.split(" ", 1)
-        emoji = parts[0] if len(parts) > 1 else "📦"
-        clean_name = parts[1] if len(parts) > 1 else cat_name
-
-        # Bu kategoriya haqida avval savol berilganmi?
-        if clean_name in interest_queries or cat_name in interest_queries:
-            continue
-
-        # Bu kategoriya allaqachon qiziqishlarda bormi?
-        if clean_name in existing_interests or cat_name in existing_interests:
-            continue
-
-        # Savol yuborish!
-        kb = build_interest_keyboard(clean_name, language)
-        text = t(language, "seg_interest_question", emoji=emoji, category=clean_name)
-        await message.answer(text, reply_markup=kb)
-
-        # Savol berilgan vaqtni belgilash
-        from src.database import users_collection
-        from datetime import datetime
-        await users_collection.update_one(
-            {"telegram_id": user_id},
-            {"$set": {"last_interest_ask": datetime.utcnow()}}
-        )
-
-        # Faqat bitta kategoriya uchun savol — 1 tadan ko'p bermay turamiz
-        break

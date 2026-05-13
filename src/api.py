@@ -1793,6 +1793,88 @@ async def admin_broadcast_history(request):
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
+@routes.get('/api/admin/spending-insights')
+async def admin_spending_insights(request):
+    """Userlarning xarajat tahlili — qaysi kategoriyaga ko'p pul sarflashadi."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    
+    try:
+        from src.database import transactions_collection, users_collection
+        days = int(request.query.get("days", 30))
+        from datetime import datetime, timedelta
+        since = datetime.utcnow() - timedelta(days=days)
+        
+        # 1. Top kategoriyalar (barcha userlar bo'yicha)
+        top_categories = await transactions_collection.aggregate([
+            {"$match": {"type": "chiqim", "date": {"$gte": since}}},
+            {"$group": {
+                "_id": "$category",
+                "total_amount": {"$sum": "$amount"},
+                "count": {"$sum": 1},
+                "unique_users": {"$addToSet": "$telegram_id"}
+            }},
+            {"$project": {
+                "category": "$_id",
+                "total_amount": 1,
+                "count": 1,
+                "user_count": {"$size": "$unique_users"},
+                "_id": 0
+            }},
+            {"$sort": {"total_amount": -1}},
+            {"$limit": 20}
+        ]).to_list(20)
+        
+        # 2. Har bir user uchun top 3 kategoriya
+        user_interests = await transactions_collection.aggregate([
+            {"$match": {"type": "chiqim", "date": {"$gte": since}}},
+            {"$group": {
+                "_id": {"user": "$telegram_id", "cat": "$category"},
+                "total": {"$sum": "$amount"},
+                "count": {"$sum": 1}
+            }},
+            {"$sort": {"total": -1}},
+            {"$group": {
+                "_id": "$_id.user",
+                "top_categories": {"$push": {"category": "$_id.cat", "total": "$total", "count": "$count"}}
+            }},
+            {"$project": {
+                "telegram_id": "$_id",
+                "top_categories": {"$slice": ["$top_categories", 3]},
+                "_id": 0
+            }},
+            {"$sort": {"telegram_id": 1}}
+        ]).to_list(500)
+        
+        # 3. User ismlari
+        user_ids = [u["telegram_id"] for u in user_interests]
+        users_data = {}
+        if user_ids:
+            async for u in users_collection.find(
+                {"telegram_id": {"$in": user_ids}},
+                {"telegram_id": 1, "full_name": 1, "username": 1}
+            ):
+                users_data[u["telegram_id"]] = {
+                    "name": u.get("full_name", ""),
+                    "username": u.get("username", "")
+                }
+        
+        for ui in user_interests:
+            ud = users_data.get(ui["telegram_id"], {})
+            ui["name"] = ud.get("name", "Noma'lum")
+            ui["username"] = ud.get("username", "")
+        
+        return set_cors(web.json_response({
+            "top_categories": top_categories,
+            "user_interests": user_interests,
+            "period_days": days
+        }))
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
 @routes.post('/api/admin/ai-chat/stream')
 async def admin_ai_chat_stream(request):
     """AI bilan streaming orqali gaplashish."""
