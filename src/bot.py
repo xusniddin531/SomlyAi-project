@@ -174,6 +174,10 @@ async def main():
     # ── Start API Server ──
     await start_api_server(bot)
 
+    # ── Validate Groq API keys ──
+    from src.services.groq_service import groq_service
+    await groq_service.validate_keys_on_startup()
+
     # ── Start polling ──
     logger.info("🚀 Somly AI Bot ishga tushdi!")
     await bot.set_my_commands([

@@ -81,6 +81,37 @@ class GroqService:
                 index=i, 
                 client=AsyncGroq(api_key=key, timeout=15.0)
             ))
+        logger.info(f"GroqService initialized with {len(self.keys_stats)} API key(s)")
+
+    async def validate_keys_on_startup(self):
+        """Test each key with a minimal API call at startup. Mark invalid ones immediately."""
+        for ks in self.keys_stats:
+            try:
+                response = await ks.client.chat.completions.create(
+                    messages=[{"role": "user", "content": "hi"}],
+                    model=GROQ_MODEL,
+                    max_tokens=5,
+                )
+                logger.info(f"Key {ks.index+1}: VALID")
+            except APIStatusError as e:
+                status_code = getattr(e, 'status_code', 0)
+                if status_code == 401:
+                    ks.status = "exhausted"
+                    ks.last_error_time = time.time()
+                    logger.warning(f"Key {ks.index+1}: INVALID (401) — disabled permanently")
+                elif status_code == 429:
+                    # Rate limited but key is valid
+                    logger.info(f"Key {ks.index+1}: VALID (rate limited, will cool down)")
+                else:
+                    logger.warning(f"Key {ks.index+1}: Error {status_code} during validation")
+            except Exception as e:
+                logger.warning(f"Key {ks.index+1}: Validation error — {str(e)[:100]}")
+        
+        active = sum(1 for ks in self.keys_stats if ks.status == "active")
+        logger.info(f"Key validation complete: {active}/{len(self.keys_stats)} active")
+        if active == 0:
+            logger.error("WARNING: No valid API keys! All requests will fail.")
+            await self.alert_admin("🚨 BARCHA Groq API kalitlari yaroqsiz! Botga yangi kalitlar kerak.")
 
     async def alert_admin(self, message: str):
         try:
@@ -92,7 +123,7 @@ class GroqService:
 
     def get_best_key(self) -> KeyStats:
         now = time.time()
-        # 1. Check if any cooling key can be reactivated
+        # 1. Check if any cooling key can be reactivated (NOT exhausted/401 keys)
         for ks in self.keys_stats:
             if ks.status == "cooling":
                 if now - ks.last_error_time > 60:
