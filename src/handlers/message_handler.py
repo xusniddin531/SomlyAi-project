@@ -621,6 +621,48 @@ async def process_extracted_transactions(message: Message, transactions: list, u
             log_error(ErrorType.MONGODB_GENERAL, f"ensure_balance_exists failed", user_id, e)
             await message.answer(t(language, "err_db_connection"))
             continue
+        from datetime import datetime, timedelta
+        try:
+            today_dt = datetime.strptime(current_date, "%Y-%m-%d").date()
+            future_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+            days_diff = (future_dt - today_dt).days
+        except Exception:
+            days_diff = 0
+
+        if days_diff > 0 and tx_type in ["kirim", "chiqim"]:
+            enhanced_category, confidence = await enhance_category_with_ai(
+                description=description,
+                original_category=category,
+                personal_cats=custom_cats or [],
+                user_id=user_id
+            )
+            
+            remind_time = datetime.utcnow() + timedelta(days=days_diff)
+            
+            from src.database import reminders_collection
+            action_word = "olishingiz" if tx_type == "kirim" else "to'lashingiz"
+            question_word = "Oldingizmi" if tx_type == "kirim" else "To'ladingizmi"
+            
+            rem_doc = {
+                "user_id": user_id,
+                "type": "pending_finance",
+                "status": "pending",
+                "remind_at": remind_time,
+                "message": f"Kechagi rejangizga ko'ra, bugun shu vaqtda {format_number(amount)} {currency} {action_word} kerak edi ({enhanced_category}).\n\n{question_word}?",
+                "pending_transaction": {
+                    "type": tx_type,
+                    "amount": amount,
+                    "currency": currency,
+                    "category": enhanced_category,
+                    "description": description,
+                    "wallet_id": bal_id if bal_type == 'shared' else None,
+                }
+            }
+            await reminders_collection.insert_one(rem_doc)
+            
+            await message.answer(f"⏳ Rejalashtirildi!\n\nSiz kiritgan {format_number(amount)} {currency} miqdoridagi {tx_type} kelajakka ({display_date}) mo'ljallangan. Vaqti kelganda eslataman va tasdiqlasangiz balansga qo'shaman.")
+            continue
+
 
         # ════════════════════════════
         #  KIRIM
@@ -1382,6 +1424,33 @@ async def handle_reminder_done(callback: CallbackQuery):
             await insert_transaction(tx_data)
             await update_user_balance(rem["user_id"], currency, amount, is_income=(t_type == "kirim"))
             await callback.message.answer(f"✅ Qarz yopildi va balans yangilandi.")
+            
+    elif rem and rem.get("pending_transaction"):
+        from src.database import update_shared_wallet_balance
+        ptx = rem["pending_transaction"]
+        tx_type = ptx["type"]
+        amount = ptx["amount"]
+        currency = ptx["currency"]
+        wallet_id = ptx.get("wallet_id")
+        
+        tx_data = {
+            "telegram_id": rem["user_id"],
+            "type": tx_type,
+            "amount": amount,
+            "currency": currency,
+            "category": ptx.get("category"),
+            "description": ptx.get("description"),
+            "affects_balance": True
+        }
+        
+        if wallet_id:
+            tx_data["wallet_id"] = wallet_id
+            await update_shared_wallet_balance(wallet_id, amount, is_income=(tx_type == "kirim"))
+        else:
+            await update_user_balance(rem["user_id"], currency, amount, is_income=(tx_type == "kirim"))
+            
+        await insert_transaction(tx_data)
+        await callback.message.answer(f"✅ Kutilgan tranzaksiya tasdiqlandi va balansga qo'shildi.")
 
     await update_reminder_status(reminder_id, "done")
     await callback.message.edit_text("✅ Eslatma bajarildi deb belgilandi.")
