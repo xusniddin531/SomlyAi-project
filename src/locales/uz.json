@@ -84,6 +84,9 @@
     "deeplink_view_reports": "Hisobotni ko'rish",
     "deeplink_view_stats": "Statistikani ko'rish",
     "deeplink_view_debts": "Qarzlarni ko'rish",
+    "rem_done": "Bajarildi",
+    "rem_later": "Keyinroq",
+    "rem_cancel": "Bekor qilish",
 
     "ask_age": "Yoshingizni tanlang:",
     "ask_location": "Qayerda yashaysiz?",

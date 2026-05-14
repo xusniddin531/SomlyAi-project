@@ -512,16 +512,45 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
         
     await process_extracted_transactions(message, transactions, user_id, language, current_date, custom_cats, ai_reply, habits, state, tip)
 
-async def enhance_category_with_ai(description: str, original_category: str, personal_cats: list, user_id: int) -> tuple:
+async def enhance_category_with_ai(description: str, original_category: str, personal_cats: list, user_id: int, tx_type: str = "chiqim") -> tuple:
     """
     Enhance category detection using AI.
     Returns: (category, confidence)
     
     If AI confidence > 0.6, uses AI-detected category.
+    If the detected category is new, it is saved as a personal category.
     Otherwise uses original category.
     """
     try:
         from src.categories import SYSTEM_CATEGORIES
+        from src.database import add_custom_category
+        import re
+
+        def clean_name(value: str) -> str:
+            value = (value or "").strip()
+            return re.sub(r"^[^\w']+\s*", "", value).strip()
+
+        def norm(value: str) -> str:
+            return clean_name(value).lower()
+
+        def find_existing(name: str):
+            name_norm = norm(name)
+            allowed_types = {tx_type, "both"} if tx_type in ["kirim", "chiqim"] else {"kirim", "chiqim", "both"}
+            for cat in personal_cats or []:
+                if norm(cat.get("name")) == name_norm and cat.get("type") in allowed_types:
+                    return cat
+            for cat in SYSTEM_CATEGORIES:
+                if norm(cat.get("name")) == name_norm and cat.get("type") in allowed_types:
+                    return cat
+            return None
+
+        def force_product_category(result: dict) -> dict:
+            desc = (description or "").lower()
+            category_name = norm(result.get("category"))
+            flower_words = ["gul", "gullar", "guldasta", "atirgul", "lola", "flower", "flowers", "florist"]
+            if any(word in desc for word in flower_words) and category_name != "gullar":
+                return {"category": "Gullar", "emoji": "🌸", "confidence": 0.95, "is_new": True}
+            return result
         
         # Call AI detection
         result = await groq_service.detect_category_for_transaction(
@@ -530,13 +559,25 @@ async def enhance_category_with_ai(description: str, original_category: str, per
             system_categories=SYSTEM_CATEGORIES,
             user_id=user_id
         )
+        result = force_product_category(result)
         
         ai_confidence = result.get("confidence", 0.3)
-        ai_category = result.get("category", original_category)
+        ai_category = clean_name(result.get("category", original_category))
+        ai_emoji = result.get("emoji", "📦")
+        existing = find_existing(ai_category)
+        is_new = existing is None
         
         # Use AI result only if confidence > 0.6
         if ai_confidence > 0.6:
-            return f"{result.get('emoji', '📦')} {ai_category}", ai_confidence
+            if is_new:
+                cat_type = tx_type if tx_type in ["kirim", "chiqim"] else "chiqim"
+                if not any(norm(c.get("name")) == norm(ai_category) and c.get("type") in [cat_type, "both"] for c in personal_cats or []):
+                    await add_custom_category(user_id, ai_emoji, ai_category, cat_type)
+                    if isinstance(personal_cats, list):
+                        personal_cats.append({"emoji": ai_emoji, "name": ai_category, "type": cat_type})
+                return f"{ai_emoji} {ai_category}", ai_confidence
+
+            return f"{existing.get('emoji', ai_emoji)} {existing.get('name', ai_category)}", ai_confidence
         else:
             return original_category, 0.5
             
@@ -621,48 +662,6 @@ async def process_extracted_transactions(message: Message, transactions: list, u
             log_error(ErrorType.MONGODB_GENERAL, f"ensure_balance_exists failed", user_id, e)
             await message.answer(t(language, "err_db_connection"))
             continue
-        from datetime import datetime, timedelta
-        try:
-            today_dt = datetime.strptime(current_date, "%Y-%m-%d").date()
-            future_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
-            days_diff = (future_dt - today_dt).days
-        except Exception:
-            days_diff = 0
-
-        if days_diff > 0 and tx_type in ["kirim", "chiqim"]:
-            enhanced_category, confidence = await enhance_category_with_ai(
-                description=description,
-                original_category=category,
-                personal_cats=custom_cats or [],
-                user_id=user_id
-            )
-            
-            remind_time = datetime.utcnow() + timedelta(days=days_diff)
-            
-            from src.database import reminders_collection
-            action_word = "olishingiz" if tx_type == "kirim" else "to'lashingiz"
-            question_word = "Oldingizmi" if tx_type == "kirim" else "To'ladingizmi"
-            
-            rem_doc = {
-                "user_id": user_id,
-                "type": "pending_finance",
-                "status": "pending",
-                "remind_at": remind_time,
-                "message": f"Kechagi rejangizga ko'ra, bugun shu vaqtda {format_number(amount)} {currency} {action_word} kerak edi ({enhanced_category}).\n\n{question_word}?",
-                "pending_transaction": {
-                    "type": tx_type,
-                    "amount": amount,
-                    "currency": currency,
-                    "category": enhanced_category,
-                    "description": description,
-                    "wallet_id": bal_id if bal_type == 'shared' else None,
-                }
-            }
-            await reminders_collection.insert_one(rem_doc)
-            
-            await message.answer(f"⏳ Rejalashtirildi!\n\nSiz kiritgan {format_number(amount)} {currency} miqdoridagi {tx_type} kelajakka ({display_date}) mo'ljallangan. Vaqti kelganda eslataman va tasdiqlasangiz balansga qo'shaman.")
-            continue
-
 
         # ════════════════════════════
         #  KIRIM
@@ -672,8 +671,9 @@ async def process_extracted_transactions(message: Message, transactions: list, u
             enhanced_category, confidence = await enhance_category_with_ai(
                 description=description,
                 original_category=category,
-                personal_cats=custom_cats or [],
-                user_id=user_id
+                personal_cats=custom_cats,
+                user_id=user_id,
+                tx_type="kirim"
             )
             
             try:
@@ -728,8 +728,9 @@ async def process_extracted_transactions(message: Message, transactions: list, u
             enhanced_category, confidence = await enhance_category_with_ai(
                 description=description,
                 original_category=category,
-                personal_cats=custom_cats or [],
-                user_id=user_id
+                personal_cats=custom_cats,
+                user_id=user_id,
+                tx_type="chiqim"
             )
             
             # Anomaly Detection (QISM 5)
@@ -1424,33 +1425,6 @@ async def handle_reminder_done(callback: CallbackQuery):
             await insert_transaction(tx_data)
             await update_user_balance(rem["user_id"], currency, amount, is_income=(t_type == "kirim"))
             await callback.message.answer(f"✅ Qarz yopildi va balans yangilandi.")
-            
-    elif rem and rem.get("pending_transaction"):
-        from src.database import update_shared_wallet_balance
-        ptx = rem["pending_transaction"]
-        tx_type = ptx["type"]
-        amount = ptx["amount"]
-        currency = ptx["currency"]
-        wallet_id = ptx.get("wallet_id")
-        
-        tx_data = {
-            "telegram_id": rem["user_id"],
-            "type": tx_type,
-            "amount": amount,
-            "currency": currency,
-            "category": ptx.get("category"),
-            "description": ptx.get("description"),
-            "affects_balance": True
-        }
-        
-        if wallet_id:
-            tx_data["wallet_id"] = wallet_id
-            await update_shared_wallet_balance(wallet_id, amount, is_income=(tx_type == "kirim"))
-        else:
-            await update_user_balance(rem["user_id"], currency, amount, is_income=(tx_type == "kirim"))
-            
-        await insert_transaction(tx_data)
-        await callback.message.answer(f"✅ Kutilgan tranzaksiya tasdiqlandi va balansga qo'shildi.")
 
     await update_reminder_status(reminder_id, "done")
     await callback.message.edit_text("✅ Eslatma bajarildi deb belgilandi.")
@@ -1576,5 +1550,3 @@ async def confirm_past_date_yes(callback: CallbackQuery, state: FSMContext):
 async def confirm_past_date_no(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text("Yangi sanani kiriting (masalan, 2026-05-01):")
     await state.set_state(TransactionAmbiguity.waiting_for_debt_date)
-
-

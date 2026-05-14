@@ -885,7 +885,7 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
         # Kategoriyalar ro'yxatini formatlash
         _default_name = "Noma'lum"
         personal_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', _default_name)}" for c in personal_categories[:10]])
-        system_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', _default_name)}" for c in (system_categories or [])[:20]])
+        system_cats_text = "\n".join([f"- {c.get('emoji', '📦')} {c.get('name', _default_name)}" for c in (system_categories or [])])
         
         messages = [
             {"role": "system", "content": (
@@ -898,9 +898,16 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
                 "{\n"
                 '  "category": "Kategoriya nomi",\n'
                 '  "emoji": "Emoji",\n'
-                '  "confidence": 0.0-1.0\n'
+                '  "confidence": 0.0-1.0,\n'
+                '  "is_new": true|false\n'
                 "}\n\n"
-                "Agar kiritilgan tavsif mavjud kategoriyalarga mos kelmasa, MAVJUD KATEGORIYALARGA TIQISHTIRMA. Uning o'rniga eng mos va qisqa YANGI KATEGORIYA nomini yarat (masalan: 'Gullar', 'Kiyim', 'Sovg'a')."
+                "QOIDALAR:\n"
+                "- Category qiymatida emoji yozma, faqat nom yoz.\n"
+                "- Agar tavsif mavjud kategoriyalardan biriga aniq mos bo'lsa, is_new=false.\n"
+                "- Agar tavsif mavjud kategoriyalarga aniq mos kelmasa, MAVJUD KATEGORIYAGA TIQISHTIRMA; qisqa va aniq yangi kategoriya yarat, is_new=true.\n"
+                "- 'gul', 'guldasta', 'atirgul', 'lola', 'flower', 'flowers' kabi tavsiflar transport yoki mashina emas; mavjud mos kategoriya bo'lmasa 'Gullar' kategoriyasini qaytar.\n"
+                "- Transport kategoriyalarini faqat taksi, avtobus, metro, mashina, yoqilg'i, parking kabi transport xarajatlari uchun ishlat.\n"
+                "- Yangi kategoriya nomlari misoli: 'Gullar', 'Kiyim', 'Elektronika', 'Uy bezaklari'."
             )},
             {"role": "user", "content": f"Tavsif: {description}"}
         ]
@@ -912,10 +919,17 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
             
             # JSON olish
             data = json.loads(result)
+            is_new_raw = data.get("is_new", False)
+            if isinstance(is_new_raw, str):
+                is_new = is_new_raw.strip().lower() in ["true", "1", "yes", "ha"]
+            else:
+                is_new = bool(is_new_raw)
+
             return {
                 "category": data.get("category", "Boshqa xarajat"),
                 "emoji": data.get("emoji", "📦"),
-                "confidence": min(1.0, max(0.0, float(data.get("confidence", 0.5))))
+                "confidence": min(1.0, max(0.0, float(data.get("confidence", 0.5)))),
+                "is_new": is_new
             }
         except Exception as e:
             logger.error(f"Error detecting category: {str(e)}")

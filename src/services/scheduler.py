@@ -436,7 +436,8 @@ async def check_custom_reminders(bot: Bot):
     try:
         cursor = reminders_collection.find({
             "status": "pending",
-            "remind_at": {"$lte": now}
+            "remind_at": {"$lte": now},
+            "pending_transaction": {"$exists": False}
         })
         reminders = await cursor.to_list(length=50)
         

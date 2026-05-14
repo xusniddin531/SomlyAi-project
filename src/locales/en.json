@@ -83,6 +83,9 @@
     "deeplink_view_reports": "View Report",
     "deeplink_view_stats": "View Statistics",
     "deeplink_view_debts": "View Debts",
+    "rem_done": "Done",
+    "rem_later": "Later",
+    "rem_cancel": "Cancel",
 
     "ask_age": "Choose your age:",
     "ask_location": "Where do you live?",

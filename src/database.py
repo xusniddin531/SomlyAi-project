@@ -218,7 +218,18 @@ async def insert_reminder(data: dict) -> str:
 async def get_pending_reminders() -> list:
     """Hozirgi vaqtdan o'tgan, lekin hali yuborilmagan eslatmalarni oladi."""
     now = datetime.now()
-    cursor = reminders_collection.find({"status": "pending", "scheduled_time": {"$lte": now}})
+    now_utc = datetime.utcnow()
+    cursor = reminders_collection.find({
+        "status": "pending",
+        "$or": [
+            {"scheduled_time": {"$lte": now}},
+            {
+                "pending_transaction": {"$exists": True},
+                "scheduled_time": {"$exists": False},
+                "remind_at": {"$lte": now_utc}
+            },
+        ]
+    })
     return await cursor.to_list(length=1000)
 
 async def update_reminder_status(reminder_id: str, status: str):
@@ -241,7 +252,14 @@ async def get_user_reminders(user_id: int, status: str = "pending") -> list:
 async def update_reminder_time(reminder_id: str, new_time: datetime):
     await reminders_collection.update_one(
         {"_id": ObjectId(reminder_id)},
-        {"$set": {"scheduled_time": new_time, "status": "pending", "updated_at": datetime.utcnow()}}
+        {
+            "$set": {
+                "scheduled_time": new_time,
+                "status": "pending",
+                "updated_at": datetime.utcnow()
+            },
+            "$unset": {"remind_at": ""}
+        }
     )
 
 # ═══════════════════════════════════════
