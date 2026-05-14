@@ -620,7 +620,10 @@ QOLGAN QOIDALAR:
 - intent turlari: finance | chat | report | advice | bot_about | secret | unclear | reminder_action | update | delete_request
 - reminder_action: FAKATGINA foydalanuvchi kelgan eslatmaga javob bersa.
 - report_query: agar intent="report" bo'lsa, hisobot so'rovi yoziladi.
-- transactions massivida BARCHA amallar bo'lishi SHART. {categories_text}, {balances_text}.
+- transactions massivida BARCHA amallar bo'lishi SHART.
+- MAVJUD KATEGORIYALAR: {categories_text}
+- KATEGORIYA YARATISH: Agar xarajat/kirim mavjud kategoriyalarning BIRTASIGA HAM mantiqan mos kelmasa, MAVJUD KATEGORIYAGA TIQISHTIRMA! Uning o'rniga o'zing eng mos va qisqa YANGI KATEGORIYA nomini yarat (masalan: 'Gullar', 'Sovg'alar', 'Kiyim-kechak').
+- MAVJUD BALANSLAR: {balances_text}
 
 JSON FORMATI:
 {{
