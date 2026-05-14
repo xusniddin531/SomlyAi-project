@@ -16,6 +16,8 @@ const AdminAdStats = ({ token, navigateTo }) => {
   const [detailData, setDetailData] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [tab, setTab] = useState('active'); // active | archive
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   useEffect(() => { fetchAds(); }, []);
 
@@ -51,7 +53,14 @@ const AdminAdStats = ({ token, navigateTo }) => {
   };
 
   const handleExportCSV = () => {
-    window.open(`/api/admin/ads/export/csv?token=${token}`, '_blank');
+    let url = `/api/admin/ads/export/csv?token=${token}`;
+    if (dateFrom) url += `&from=${dateFrom}`;
+    if (dateTo) url += `&to=${dateTo}`;
+    window.open(url, '_blank');
+  };
+
+  const handleExportSingleCSV = (adId) => {
+    window.open(`/api/admin/ads/${adId}/export/csv?token=${token}`, '_blank');
   };
 
   const openDetail = (adId) => {
@@ -175,9 +184,12 @@ const AdminAdStats = ({ token, navigateTo }) => {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <button className="btn-secondary" onClick={() => fetchDetail(selectedAd)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <RefreshCw size={16} /> Yangilash
+          </button>
+          <button className="btn-secondary" onClick={() => handleExportSingleCSV(d._id)} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Download size={16} /> CSV yuklab olish
           </button>
           {(d.status === 'sending' || d.status === 'scheduled') && (
             <button onClick={() => handleStop(d._id)} style={{ padding: '10px 20px', borderRadius: '10px', background: '#ef444420', color: '#ef4444', border: 'none', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -221,6 +233,19 @@ const AdminAdStats = ({ token, navigateTo }) => {
           }}>{t.label}</button>
         ))}
       </div>
+
+      {/* Date filter for archive */}
+      {tab === 'archive' && (
+        <div className="card" style={{ padding: '14px', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-muted)' }}>Davr:</span>
+          <input type="date" className="input-field" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ padding: '8px 12px', fontSize: '13px', maxWidth: '160px' }} />
+          <span style={{ color: 'var(--text-muted)' }}>—</span>
+          <input type="date" className="input-field" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ padding: '8px 12px', fontSize: '13px', maxWidth: '160px' }} />
+          <button className="btn-primary" onClick={handleExportCSV} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', fontSize: '13px' }}>
+            <Download size={14} /> Barchasini CSV da yuklab olish
+          </button>
+        </div>
+      )}
 
       {displayAds.length === 0 ? (
         <div className="card" style={{ padding: '50px', textAlign: 'center' }}>

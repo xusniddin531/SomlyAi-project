@@ -2653,39 +2653,165 @@ async def admin_ad_stats(request):
 
 @routes.get('/api/admin/ads/export/csv')
 async def admin_ads_export_csv(request):
-    """Export all ads as CSV for archive."""
+    """Export all ads as detailed CSV for archive."""
     if not _verify_admin_token(request):
         return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
     try:
-        from src.database import get_ads
-        import csv
-        import io
+        from src.database import ads_collection
+        import csv, io
 
-        ads = await get_ads(limit=500)
+        # Optional date filtering
+        query = {}
+        date_from = request.query.get("from")
+        date_to = request.query.get("to")
+        if date_from or date_to:
+            query["created_at"] = {}
+            if date_from:
+                query["created_at"]["$gte"] = datetime.strptime(date_from, "%Y-%m-%d")
+            if date_to:
+                query["created_at"]["$lte"] = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            if not query["created_at"]:
+                del query["created_at"]
+
+        cursor = ads_collection.find(query).sort("created_at", -1).limit(500)
+        ads = []
+        async for ad in cursor:
+            ads.append(ad)
 
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(["ID", "Nomi", "Turi", "Holat", "Yuborildi", "Xato", "Bloklangan", "Jami", "Yaratildi", "Davomiyligi"])
+        writer.writerow([
+            "Reklama_ID", "Reklama_nomi", "Turi", "Holat",
+            "Yaratilgan_sana", "Davomiyligi",
+            "Manzil", "Segment_yosh", "Segment_jins", "Segment_joylashuv", "Segment_til",
+            "Jami_maqsad", "Yuborildi", "Xato", "Bloklangan",
+            "CTR_%"
+        ])
+
         for ad in ads:
             s = ad.get("stats", {})
+            sf = ad.get("segment_filters", {})
+            total = s.get("total", 0)
+            sent = s.get("sent", 0)
+
+            targets_str = ", ".join(ad.get("targets", []))
+            age_str = ", ".join(sf.get("age_groups", [])) or "Barcha"
+            gender_str = ", ".join(sf.get("genders", [])) or "Barcha"
+            region_str = ", ".join(sf.get("regions", [])) or "Barcha"
+            lang_str = ", ".join(sf.get("languages", [])) or "Barcha"
+
+            created = ad.get("created_at")
+            if hasattr(created, "strftime"):
+                created = created.strftime("%d.%m.%Y %H:%M")
+
             writer.writerow([
                 ad.get("_id", ""),
                 ad.get("name", ""),
                 ad.get("content_type", ""),
                 ad.get("status", ""),
-                s.get("sent", 0),
+                created or "",
+                ad.get("duration", ""),
+                targets_str,
+                age_str, gender_str, region_str, lang_str,
+                total, sent,
                 s.get("failed", 0),
                 s.get("blocked", 0),
-                s.get("total", 0),
-                ad.get("created_at", ""),
-                ad.get("duration", "")
+                f"{round(sent / total * 100, 1)}%" if total > 0 else "0%"
             ])
 
+        today = datetime.utcnow().strftime("%d%m%Y")
         csv_content = output.getvalue()
         return set_cors(web.Response(
             text=csv_content,
             content_type='text/csv',
-            headers={'Content-Disposition': 'attachment; filename="somly_ads_archive.csv"'}
+            headers={'Content-Disposition': f'attachment; filename="somly_ads_{today}.csv"'}
+        ))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.get('/api/admin/ads/{ad_id}/export/csv')
+async def admin_single_ad_export_csv(request):
+    """Export a single ad's detailed report as CSV."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import ads_collection
+        import csv, io
+
+        ad_id = request.match_info['ad_id']
+        ad = await ads_collection.find_one({"_id": ad_id})
+        if not ad:
+            return set_cors(web.json_response({"error": "Ad not found"}, status=404))
+
+        s = ad.get("stats", {})
+        sf = ad.get("segment_filters", {})
+        total = s.get("total", 0)
+        sent = s.get("sent", 0)
+        failed = s.get("failed", 0)
+        blocked = s.get("blocked", 0)
+
+        targets_str = " + ".join(ad.get("targets", []))
+
+        created = ad.get("created_at")
+        started = ad.get("started_at")
+        finished = ad.get("finished_at")
+        if hasattr(created, "strftime"):
+            created = created.strftime("%d.%m.%Y %H:%M")
+        if hasattr(started, "strftime"):
+            started = started.strftime("%d.%m.%Y %H:%M")
+        if hasattr(finished, "strftime"):
+            finished = finished.strftime("%d.%m.%Y %H:%M")
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+
+        # Header info section
+        writer.writerow(["=== REKLAMA HISOBOTI ===", ""])
+        writer.writerow(["", ""])
+        writer.writerow(["Reklama_ID", ad.get("_id", "")])
+        writer.writerow(["Reklama_nomi", ad.get("name", "")])
+        writer.writerow(["Yaratilgan_sana", created or ""])
+        writer.writerow(["Boshlanish", started or ""])
+        writer.writerow(["Tugash", finished or ""])
+        writer.writerow(["Holat", ad.get("status", "")])
+        writer.writerow(["Davomiyligi", ad.get("duration", "")])
+        writer.writerow(["", ""])
+
+        # Target info
+        writer.writerow(["=== MANZIL ===", ""])
+        writer.writerow(["Manzil", targets_str])
+        writer.writerow(["Segment_rejimi", ad.get("segment_mode", "all")])
+        writer.writerow(["Segment_yosh", ", ".join(sf.get("age_groups", [])) or "Barcha"])
+        writer.writerow(["Segment_jins", ", ".join(sf.get("genders", [])) or "Barcha"])
+        writer.writerow(["Segment_joylashuv", ", ".join(sf.get("regions", [])) or "Barcha"])
+        writer.writerow(["Segment_til", ", ".join(sf.get("languages", [])) or "Barcha"])
+        writer.writerow(["", ""])
+
+        # Stats
+        writer.writerow(["=== STATISTIKA ===", ""])
+        writer.writerow(["Jami_maqsad", total])
+        writer.writerow(["Yuborildi", sent])
+        writer.writerow(["Xato", failed])
+        writer.writerow(["Bloklangan", blocked])
+        writer.writerow(["Yuborish_%", f"{round(sent / total * 100, 1)}%" if total > 0 else "0%"])
+        writer.writerow(["", ""])
+
+        # Channel results
+        ch_results = ad.get("channel_results", {})
+        if ch_results:
+            writer.writerow(["=== KANAL NATIJALARI ===", ""])
+            for ch, result in ch_results.items():
+                writer.writerow([ch, result])
+            writer.writerow(["", ""])
+
+        today = datetime.utcnow().strftime("%d%m%Y")
+        filename = f"{ad_id}_{today}.csv"
+        csv_content = output.getvalue()
+        return set_cors(web.Response(
+            text=csv_content,
+            content_type='text/csv',
+            headers={'Content-Disposition': f'attachment; filename="{filename}"'}
         ))
     except Exception as e:
         return set_cors(web.json_response({"error": str(e)}, status=500))
