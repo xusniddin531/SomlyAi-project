@@ -2262,18 +2262,68 @@ async def admin_get_ad_channels(request):
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
-async def process_ad_job(ad_id: str, bot, targets: list, users: list, 
+# Global registry for running ad jobs — used to stop them instantly
+_running_ad_jobs = {}  # ad_id -> {"stop": False}
+
+# ── Anti-Spam Broadcast Constants ──
+AD_SEND_DELAY = 1.5       # Seconds between each message
+AD_BATCH_SIZE = 50         # Messages per batch
+AD_BATCH_PAUSE = 30        # Seconds pause between batches
+AD_FLOOD_WAIT = 60         # Seconds to wait on 429 flood error
+AD_MAX_RETRIES = 3         # Max retries per user on flood
+
+
+async def _send_single_ad(bot, uid, content_type, text, media_file_id, caption, reply_markup):
+    """Send a single ad message to one user. Returns True on success."""
+    if content_type == "text":
+        await bot.send_message(
+            chat_id=uid, text=text, parse_mode="HTML",
+            reply_markup=reply_markup, disable_web_page_preview=True
+        )
+    elif content_type in ("photo", "photo_text"):
+        await bot.send_photo(
+            chat_id=uid, photo=media_file_id,
+            caption=caption or text, parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+    elif content_type == "video":
+        await bot.send_video(
+            chat_id=uid, video=media_file_id,
+            caption=caption or text, parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+    elif content_type == "document":
+        await bot.send_document(
+            chat_id=uid, document=media_file_id,
+            caption=caption or text, parse_mode="HTML",
+            reply_markup=reply_markup
+        )
+
+
+async def process_ad_job(ad_id: str, bot, targets: list, users: list,
                           text: str, content_type: str, media_file_id: str,
                           caption: str, inline_buttons: list):
-    """Background task to send ad to all targets."""
-    from src.database import update_ad
+    """
+    Background task to send ad to all targets.
+    Anti-spam: 1.5s per message, 30s pause every 50, 429 flood handling.
+    """
+    from src.database import update_ad, users_collection
     from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
     total = len(users)
     sent = 0
     failed = 0
+    blocked = 0
+    start_time = datetime.utcnow()
 
-    await update_ad(ad_id, {"status": "sending", "stats": {"sent": 0, "failed": 0, "total": total}})
+    # Register this job so it can be stopped
+    _running_ad_jobs[ad_id] = {"stop": False}
+
+    await update_ad(ad_id, {
+        "status": "sending",
+        "stats": {"sent": 0, "failed": 0, "blocked": 0, "total": total},
+        "started_at": start_time
+    })
 
     # Build inline keyboard if buttons exist
     reply_markup = None
@@ -2289,80 +2339,150 @@ async def process_ad_job(ad_id: str, bot, targets: list, users: list,
         if kb_rows:
             reply_markup = InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
-    # Send to bot users
+    batch_count = 0  # Counter within current batch
+
+    # ── Send to bot users with anti-spam rate limiting ──
     for u in users:
-        try:
-            uid = u["telegram_id"]
-            if content_type == "text":
-                await bot.send_message(
-                    chat_id=uid, text=text, parse_mode="HTML",
-                    reply_markup=reply_markup, disable_web_page_preview=True
-                )
-            elif content_type in ("photo", "photo_text"):
-                await bot.send_photo(
-                    chat_id=uid, photo=media_file_id,
-                    caption=caption or text, parse_mode="HTML",
-                    reply_markup=reply_markup
-                )
-            elif content_type == "video":
-                await bot.send_video(
-                    chat_id=uid, video=media_file_id,
-                    caption=caption or text, parse_mode="HTML",
-                    reply_markup=reply_markup
-                )
-            elif content_type == "document":
-                await bot.send_document(
-                    chat_id=uid, document=media_file_id,
-                    caption=caption or text, parse_mode="HTML",
-                    reply_markup=reply_markup
-                )
-            sent += 1
-        except Exception as e:
-            failed += 1
+        # Check if job was stopped
+        job_state = _running_ad_jobs.get(ad_id, {})
+        if job_state.get("stop"):
+            logger.info(f"Ad {ad_id} stopped by admin at {sent}/{total}")
+            break
 
-        # Update progress every 20 messages
-        if (sent + failed) % 20 == 0:
-            await update_ad(ad_id, {"stats": {"sent": sent, "failed": failed, "total": total}})
+        uid = u["telegram_id"]
+        success = False
 
-        await asyncio.sleep(0.05)  # Rate limit protection
-
-    # Send to channels
-    channel_results = {}
-    for t in targets:
-        if t.startswith("@"):
+        for retry in range(AD_MAX_RETRIES):
             try:
-                if content_type == "text":
-                    await bot.send_message(
-                        chat_id=t, text=text, parse_mode="HTML",
-                        reply_markup=reply_markup, disable_web_page_preview=True
-                    )
-                elif content_type in ("photo", "photo_text"):
-                    await bot.send_photo(
-                        chat_id=t, photo=media_file_id,
-                        caption=caption or text, parse_mode="HTML",
-                        reply_markup=reply_markup
-                    )
-                elif content_type == "video":
-                    await bot.send_video(
-                        chat_id=t, video=media_file_id,
-                        caption=caption or text, parse_mode="HTML",
-                        reply_markup=reply_markup
-                    )
-                elif content_type == "document":
-                    await bot.send_document(
-                        chat_id=t, document=media_file_id,
-                        caption=caption or text, parse_mode="HTML",
-                        reply_markup=reply_markup
-                    )
-                channel_results[t] = "success"
+                await _send_single_ad(bot, uid, content_type, text, media_file_id, caption, reply_markup)
+                sent += 1
+                success = True
+                break
             except Exception as e:
-                channel_results[t] = f"error: {str(e)}"
+                err_str = str(e).lower()
 
+                # User blocked the bot or deactivated
+                if "forbidden" in err_str or "blocked" in err_str or "deactivated" in err_str or "chat not found" in err_str:
+                    blocked += 1
+                    failed += 1
+                    # Mark user as inactive in database
+                    try:
+                        await users_collection.update_one(
+                            {"telegram_id": uid},
+                            {"$set": {"is_active": False}}
+                        )
+                    except Exception:
+                        pass
+                    break
+
+                # Telegram flood control (429)
+                elif "retry after" in err_str or "too many requests" in err_str or "429" in err_str:
+                    logger.warning(f"Ad {ad_id}: Flood 429 at user {uid}, waiting {AD_FLOOD_WAIT}s (retry {retry+1}/{AD_MAX_RETRIES})")
+                    # Alert admin about flood
+                    admin_id = int(os.environ.get("ADMIN_ID", "0"))
+                    if admin_id and retry == 0:
+                        try:
+                            await bot.send_message(
+                                chat_id=admin_id,
+                                text=f"⚠️ <b>Flood alert!</b>\n\n"
+                                     f"📋 Reklama: <code>{ad_id}</code>\n"
+                                     f"⏳ Telegram 429 xatosi — {AD_FLOOD_WAIT}s kutilmoqda\n"
+                                     f"📊 Holat: {sent}/{total} yuborildi",
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    await asyncio.sleep(AD_FLOOD_WAIT)
+                    continue
+
+                # Other errors
+                else:
+                    failed += 1
+                    logger.error(f"Ad {ad_id}: Error sending to {uid}: {e}")
+                    break
+
+        # Update progress every 10 messages
+        if (sent + failed) % 10 == 0:
+            await update_ad(ad_id, {
+                "stats": {"sent": sent, "failed": failed, "blocked": blocked, "total": total}
+            })
+
+        batch_count += 1
+
+        # Anti-spam: 30s pause after every 50 messages
+        if batch_count >= AD_BATCH_SIZE:
+            batch_count = 0
+            # Check stop again before pausing
+            if _running_ad_jobs.get(ad_id, {}).get("stop"):
+                break
+            logger.info(f"Ad {ad_id}: Batch pause — {sent}/{total} sent, waiting {AD_BATCH_PAUSE}s")
+            await asyncio.sleep(AD_BATCH_PAUSE)
+        else:
+            # 1.5s delay between messages
+            await asyncio.sleep(AD_SEND_DELAY)
+
+    # ── Determine final status ──
+    was_stopped = _running_ad_jobs.get(ad_id, {}).get("stop", False)
+    final_status = "stopped" if was_stopped else "completed"
+
+    # ── Send to channels (instant, no rate limit needed) ──
+    channel_results = {}
+    if not was_stopped:
+        for t in targets:
+            if t.startswith("@"):
+                try:
+                    await _send_single_ad(bot, t, content_type, text, media_file_id, caption, reply_markup)
+                    channel_results[t] = "success"
+                except Exception as e:
+                    channel_results[t] = f"error: {str(e)}"
+
+    # ── Calculate duration ──
+    end_time = datetime.utcnow()
+    duration_seconds = (end_time - start_time).total_seconds()
+    duration_min = int(duration_seconds // 60)
+    duration_sec = int(duration_seconds % 60)
+    duration_str = f"{duration_min} daqiqa {duration_sec} soniya"
+
+    # ── Update final status in DB ──
     await update_ad(ad_id, {
-        "status": "completed",
-        "stats": {"sent": sent, "failed": failed, "total": total},
-        "channel_results": channel_results
+        "status": final_status,
+        "stats": {"sent": sent, "failed": failed, "blocked": blocked, "total": total},
+        "channel_results": channel_results,
+        "finished_at": end_time,
+        "duration": duration_str
     })
+
+    # ── Send completion notification to admin via bot ──
+    admin_id = int(os.environ.get("ADMIN_ID", "0"))
+    if admin_id:
+        try:
+            if was_stopped:
+                notif_text = (
+                    f"⏹ <b>Reklama to'xtatildi!</b>\n\n"
+                    f"📋 ID: <code>{ad_id}</code>\n"
+                    f"👥 Yuborildi: {sent} / {total}\n"
+                    f"❌ Xato: {failed} (bloklagan: {blocked})\n"
+                    f"⏱ Vaqt: {duration_str}"
+                )
+            else:
+                notif_text = (
+                    f"✅ <b>Reklama yuborildi!</b>\n\n"
+                    f"📋 ID: <code>{ad_id}</code>\n"
+                    f"👥 Yuborildi: {sent}\n"
+                    f"❌ Xato: {failed} (bloklagan: {blocked})\n"
+                    f"⏱ Vaqt: {duration_str}"
+                )
+                if channel_results:
+                    ch_lines = "\n".join([f"  {'✅' if v=='success' else '❌'} {k}" for k, v in channel_results.items()])
+                    notif_text += f"\n\n📢 Kanallar:\n{ch_lines}"
+
+            await bot.send_message(chat_id=admin_id, text=notif_text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Failed to notify admin about ad {ad_id}: {e}")
+
+    # Clean up job registry
+    _running_ad_jobs.pop(ad_id, None)
+    logger.info(f"Ad {ad_id} finished: {final_status} — sent={sent}, failed={failed}, blocked={blocked}, time={duration_str}")
 
 
 @routes.post('/api/admin/ads/{ad_id}/send')
@@ -2455,12 +2575,15 @@ async def admin_send_ad(request):
 
 @routes.post('/api/admin/ads/{ad_id}/stop')
 async def admin_stop_ad(request):
-    """Stop a running or scheduled ad."""
+    """Stop a running or scheduled ad — instantly sets stop flag."""
     if not _verify_admin_token(request):
         return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
     try:
         from src.database import update_ad
         ad_id = request.match_info['ad_id']
+        # Set the stop flag so background task breaks immediately
+        if ad_id in _running_ad_jobs:
+            _running_ad_jobs[ad_id]["stop"] = True
         await update_ad(ad_id, {"status": "stopped"})
         return set_cors(web.json_response({"success": True}))
     except Exception as e:

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Image, Video, FileText, Send, Calendar, Clock, Bold, Italic, Link2, Plus, GripVertical, Trash2 } from 'lucide-react';
+import { Image, Video, FileText, Send, Calendar, Clock, Bold, Italic, Link2, Plus, GripVertical, Trash2, AlertTriangle, X } from 'lucide-react';
 
 const AdminAdCreate = ({ token, navigateTo, editAdId }) => {
   const [ad, setAd] = useState({
@@ -21,6 +21,7 @@ const AdminAdCreate = ({ token, navigateTo, editAdId }) => {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [estimate, setEstimate] = useState(null);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   useEffect(() => {
     fetchChannels();
@@ -309,8 +310,8 @@ const AdminAdCreate = ({ token, navigateTo, editAdId }) => {
             </div>
           </div>
 
-          <button className="btn-primary" style={{ padding: '16px', fontSize: '16px' }} onClick={() => handleSaveAndSend('send')} disabled={saving}>
-             {saving ? 'Kuting...' : (ad.schedule_type === 'now' ? 'Hozir yuborish' : 'Rejalashtirish')}
+          <button className="btn-primary" style={{ padding: '16px', fontSize: '16px' }} onClick={() => setShowConfirm(true)} disabled={saving}>
+             {saving ? 'Kuting...' : (ad.schedule_type === 'now' ? '📤 Hozir yuborish' : '📅 Rejalashtirish')}
           </button>
           
           <button className="btn-secondary" onClick={() => handleSaveAndSend('save')} disabled={saving}>
@@ -319,6 +320,57 @@ const AdminAdCreate = ({ token, navigateTo, editAdId }) => {
 
         </div>
       </div>
+
+      {/* ── Confirmation Modal ── */}
+      {showConfirm && (() => {
+        const totalUsers = estimate?.total || 0;
+        // Anti-spam calculation: 50 messages per batch, 1.5s each + 30s pause
+        const batches = Math.ceil(totalUsers / 50);
+        const sendTime = totalUsers * 1.5 + (batches - 1) * 30;
+        const estMinutes = Math.ceil(sendTime / 60);
+        const estHours = Math.floor(estMinutes / 60);
+        const estMins = estMinutes % 60;
+        const timeStr = estHours > 0 ? `~${estHours} soat ${estMins} daqiqa` : `~${estMins} daqiqa`;
+        const targetList = ad.targets.map(t => t === 'bot' ? '🤖 Bot' : `📢 ${t}`).join(', ');
+
+        return (
+          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
+            <div className="card" style={{ maxWidth: '440px', width: '100%', padding: '28px', animation: 'fadeIn 0.2s ease' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px' }}>
+                <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: '#f59e0b20', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <AlertTriangle size={22} color="#f59e0b" />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '18px' }}>Reklamani yuborish</h3>
+                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>Iltimos, tekshiring</p>
+                </div>
+                <button onClick={() => setShowConfirm(false)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', padding: '4px' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div style={{ background: 'var(--border)', borderRadius: '12px', padding: '16px', fontSize: '14px', lineHeight: '1.8' }}>
+                <div>📋 <b>{ad._id || 'Yangi'}</b>: {ad.name}</div>
+                <div>👥 Qamrov: <b>{totalUsers.toLocaleString()}</b> ta foydalanuvchi</div>
+                <div>📍 {targetList}</div>
+                <div>⏱ Taxminiy vaqt: <b>{timeStr}</b></div>
+                <div>📅 Boshlanish: <b>{ad.schedule_type === 'now' ? 'Hozir' : ad.scheduled_at}</b></div>
+              </div>
+
+              <div style={{ marginTop: '12px', padding: '10px 14px', borderRadius: '10px', background: '#3b82f610', fontSize: '12px', color: 'var(--text-muted)', lineHeight: '1.6' }}>
+                🛡 Anti-spam himoya: Har 1.5 soniyada 1 xabar, har 50 tadan keyin 30s pauza. Telegram spam filtriga tushmaydi.
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                <button className="btn-secondary" style={{ flex: 1, padding: '14px' }} onClick={() => setShowConfirm(false)}>❌ Bekor</button>
+                <button className="btn-primary" style={{ flex: 1, padding: '14px' }} onClick={() => { setShowConfirm(false); handleSaveAndSend('send'); }} disabled={saving}>
+                  ✅ Tasdiqlash
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
