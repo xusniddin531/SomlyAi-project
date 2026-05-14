@@ -2066,6 +2066,407 @@ async def admin_groq_status(request):
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
+# ═══════════════════════════════════════
+# ADVERTISEMENT MANAGEMENT API
+# ═══════════════════════════════════════
+
+@routes.get('/api/admin/ads')
+async def admin_get_ads(request):
+    """Get all advertisements."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_ads
+        ads = await get_ads()
+        return set_cors(web.json_response(ads))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.post('/api/admin/ads')
+async def admin_create_ad(request):
+    """Create a new advertisement."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import create_ad
+        data = await request.json()
+        ad = await create_ad(data)
+        # Serialize for JSON response
+        ad["_id"] = str(ad["_id"])
+        if "created_at" in ad and hasattr(ad["created_at"], "strftime"):
+            ad["created_at"] = ad["created_at"].strftime("%Y-%m-%d %H:%M")
+        return set_cors(web.json_response({"success": True, "ad": ad}))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.get('/api/admin/ads/{ad_id}')
+async def admin_get_ad(request):
+    """Get a single ad by ID."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_ad
+        ad_id = request.match_info['ad_id']
+        ad = await get_ad(ad_id)
+        if not ad:
+            return set_cors(web.json_response({"error": "Ad not found"}, status=404))
+        return set_cors(web.json_response(ad))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.delete('/api/admin/ads/{ad_id}')
+async def admin_delete_ad(request):
+    """Delete an ad."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import delete_ad
+        ad_id = request.match_info['ad_id']
+        deleted = await delete_ad(ad_id)
+        return set_cors(web.json_response({"success": deleted}))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.post('/api/admin/ads/estimate')
+async def admin_estimate_reach(request):
+    """Estimate how many users the ad will reach."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import estimate_ad_reach
+        data = await request.json()
+        result = await estimate_ad_reach(
+            targets=data.get("targets", ["bot"]),
+            segment_mode=data.get("segment_mode", "all"),
+            segment_filters=data.get("segment_filters", {})
+        )
+        return set_cors(web.json_response(result))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.post('/api/admin/ads/upload')
+async def admin_upload_media(request):
+    """Upload media file — sends to admin's Telegram chat to get file_id."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        import tempfile
+        reader = await request.multipart()
+        field = await reader.next()
+        if not field:
+            return set_cors(web.json_response({"error": "No file uploaded"}, status=400))
+
+        filename = field.filename or "upload"
+        content_type = field.headers.get('Content-Type', 'application/octet-stream')
+        
+        # Read file data
+        file_data = bytearray()
+        while True:
+            chunk = await field.read_chunk()
+            if not chunk:
+                break
+            file_data.extend(chunk)
+
+        if len(file_data) == 0:
+            return set_cors(web.json_response({"error": "Empty file"}, status=400))
+
+        bot = request.app.get('bot')
+        admin_id = int(os.environ.get("ADMIN_ID", "0"))
+        if not bot or not admin_id:
+            return set_cors(web.json_response({"error": "Bot or admin_id not configured"}, status=500))
+
+        # Write to temp file
+        import tempfile as tmp
+        suffix = os.path.splitext(filename)[1] or ".bin"
+        with tmp.NamedTemporaryFile(delete=False, suffix=suffix) as f:
+            f.write(file_data)
+            temp_path = f.name
+
+        try:
+            from aiogram.types import FSInputFile
+            input_file = FSInputFile(temp_path, filename=filename)
+
+            # Determine type and send to admin chat to get file_id
+            file_id = None
+            media_type = "document"
+
+            if content_type.startswith("image/"):
+                media_type = "photo"
+                msg = await bot.send_photo(
+                    chat_id=admin_id, photo=input_file,
+                    caption=f"📎 Reklama media yuklandi: {filename}",
+                    disable_notification=True
+                )
+                file_id = msg.photo[-1].file_id if msg.photo else None
+            elif content_type.startswith("video/"):
+                media_type = "video"
+                msg = await bot.send_video(
+                    chat_id=admin_id, video=input_file,
+                    caption=f"📎 Reklama media yuklandi: {filename}",
+                    disable_notification=True
+                )
+                file_id = msg.video.file_id if msg.video else None
+            else:
+                media_type = "document"
+                msg = await bot.send_document(
+                    chat_id=admin_id, document=input_file,
+                    caption=f"📎 Reklama media yuklandi: {filename}",
+                    disable_notification=True
+                )
+                file_id = msg.document.file_id if msg.document else None
+
+            if not file_id:
+                return set_cors(web.json_response({"error": "Could not get file_id"}, status=500))
+
+            return set_cors(web.json_response({
+                "success": True,
+                "file_id": file_id,
+                "media_type": media_type,
+                "filename": filename,
+                "size": len(file_data)
+            }))
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except:
+                pass
+
+    except Exception as e:
+        logger.error(f"Media upload error: {e}")
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.get('/api/admin/ads/channels')
+async def admin_get_ad_channels(request):
+    """Get list of channels from AdminChannels for ad targeting."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import channel_subscriptions_collection
+        cursor = channel_subscriptions_collection.find({}, {
+            "channel_id": 1, "username": 1, "title": 1, 
+            "subscriber_count": 1, "is_mandatory": 1
+        })
+        channels = []
+        async for ch in cursor:
+            ch["_id"] = str(ch["_id"])
+            channels.append(ch)
+        return set_cors(web.json_response(channels))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+async def process_ad_job(ad_id: str, bot, targets: list, users: list, 
+                          text: str, content_type: str, media_file_id: str,
+                          caption: str, inline_buttons: list):
+    """Background task to send ad to all targets."""
+    from src.database import update_ad
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+    total = len(users)
+    sent = 0
+    failed = 0
+
+    await update_ad(ad_id, {"status": "sending", "stats": {"sent": 0, "failed": 0, "total": total}})
+
+    # Build inline keyboard if buttons exist
+    reply_markup = None
+    if inline_buttons and len(inline_buttons) > 0:
+        kb_rows = []
+        for row in inline_buttons:
+            btn_row = []
+            for btn in row:
+                if btn.get("text") and btn.get("url"):
+                    btn_row.append(InlineKeyboardButton(text=btn["text"], url=btn["url"]))
+            if btn_row:
+                kb_rows.append(btn_row)
+        if kb_rows:
+            reply_markup = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+    # Send to bot users
+    for u in users:
+        try:
+            uid = u["telegram_id"]
+            if content_type == "text":
+                await bot.send_message(
+                    chat_id=uid, text=text, parse_mode="HTML",
+                    reply_markup=reply_markup, disable_web_page_preview=True
+                )
+            elif content_type in ("photo", "photo_text"):
+                await bot.send_photo(
+                    chat_id=uid, photo=media_file_id,
+                    caption=caption or text, parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+            elif content_type == "video":
+                await bot.send_video(
+                    chat_id=uid, video=media_file_id,
+                    caption=caption or text, parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+            elif content_type == "document":
+                await bot.send_document(
+                    chat_id=uid, document=media_file_id,
+                    caption=caption or text, parse_mode="HTML",
+                    reply_markup=reply_markup
+                )
+            sent += 1
+        except Exception as e:
+            failed += 1
+
+        # Update progress every 20 messages
+        if (sent + failed) % 20 == 0:
+            await update_ad(ad_id, {"stats": {"sent": sent, "failed": failed, "total": total}})
+
+        await asyncio.sleep(0.05)  # Rate limit protection
+
+    # Send to channels
+    channel_results = {}
+    for t in targets:
+        if t.startswith("@"):
+            try:
+                if content_type == "text":
+                    await bot.send_message(
+                        chat_id=t, text=text, parse_mode="HTML",
+                        reply_markup=reply_markup, disable_web_page_preview=True
+                    )
+                elif content_type in ("photo", "photo_text"):
+                    await bot.send_photo(
+                        chat_id=t, photo=media_file_id,
+                        caption=caption or text, parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                elif content_type == "video":
+                    await bot.send_video(
+                        chat_id=t, video=media_file_id,
+                        caption=caption or text, parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                elif content_type == "document":
+                    await bot.send_document(
+                        chat_id=t, document=media_file_id,
+                        caption=caption or text, parse_mode="HTML",
+                        reply_markup=reply_markup
+                    )
+                channel_results[t] = "success"
+            except Exception as e:
+                channel_results[t] = f"error: {str(e)}"
+
+    await update_ad(ad_id, {
+        "status": "completed",
+        "stats": {"sent": sent, "failed": failed, "total": total},
+        "channel_results": channel_results
+    })
+
+
+@routes.post('/api/admin/ads/{ad_id}/send')
+async def admin_send_ad(request):
+    """Send or schedule an advertisement."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_ad, update_ad, users_collection
+
+        ad_id = request.match_info['ad_id']
+        ad = await get_ad(ad_id)
+        if not ad:
+            return set_cors(web.json_response({"error": "Ad not found"}, status=404))
+
+        bot = request.app.get('bot')
+        if not bot:
+            return set_cors(web.json_response({"error": "Bot not available"}, status=500))
+
+        targets = ad.get("targets", ["bot"])
+        
+        # Build user query
+        users = []
+        if "bot" in targets:
+            query = {"is_active": True}
+            if ad.get("segment_mode") == "segment" and ad.get("segment_filters"):
+                sf = ad["segment_filters"]
+                if sf.get("age_groups"):
+                    query["age_group"] = {"$in": sf["age_groups"]}
+                if sf.get("genders"):
+                    query["gender"] = {"$in": sf["genders"]}
+                if sf.get("regions"):
+                    query["region"] = {"$in": sf["regions"]}
+                if sf.get("languages"):
+                    query["language"] = {"$in": sf["languages"]}
+            cursor = users_collection.find(query, {"telegram_id": 1})
+            users = await cursor.to_list(length=200000)
+
+        schedule_type = ad.get("schedule_type", "now")
+        
+        if schedule_type == "scheduled" and ad.get("scheduled_at"):
+            # Schedule for later
+            from datetime import datetime as dt
+            scheduled_str = ad["scheduled_at"]
+            if isinstance(scheduled_str, str):
+                scheduled_time = dt.strptime(scheduled_str, "%Y-%m-%d %H:%M")
+            else:
+                scheduled_time = scheduled_str
+            
+            delay = (scheduled_time - dt.utcnow()).total_seconds()
+            if delay < 0:
+                delay = 0
+            
+            await update_ad(ad_id, {"status": "scheduled"})
+
+            async def scheduled_send():
+                await asyncio.sleep(delay)
+                # Re-fetch ad to check if stopped
+                from src.database import get_ad as _get_ad
+                fresh = await _get_ad(ad_id)
+                if fresh and fresh.get("status") != "stopped":
+                    await process_ad_job(
+                        ad_id, bot, targets, users,
+                        ad.get("text", ""), ad.get("content_type", "text"),
+                        ad.get("media_file_id"), ad.get("caption", ""),
+                        ad.get("inline_buttons", [])
+                    )
+
+            asyncio.create_task(scheduled_send())
+            return set_cors(web.json_response({
+                "success": True, "status": "scheduled",
+                "total_users": len(users), "scheduled_at": str(ad.get("scheduled_at"))
+            }))
+        else:
+            # Send now
+            asyncio.create_task(process_ad_job(
+                ad_id, bot, targets, users,
+                ad.get("text", ""), ad.get("content_type", "text"),
+                ad.get("media_file_id"), ad.get("caption", ""),
+                ad.get("inline_buttons", [])
+            ))
+            return set_cors(web.json_response({
+                "success": True, "status": "sending", "total_users": len(users)
+            }))
+
+    except Exception as e:
+        logger.error(f"Send ad error: {e}")
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.post('/api/admin/ads/{ad_id}/stop')
+async def admin_stop_ad(request):
+    """Stop a running or scheduled ad."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import update_ad
+        ad_id = request.match_info['ad_id']
+        await update_ad(ad_id, {"status": "stopped"})
+        return set_cors(web.json_response({"success": True}))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
 async def on_shutdown(app):
     """Graceful shutdown: Notify all WebSockets before closing."""
     logger.info("Server shutting down, broadcasting to all WebSockets...")

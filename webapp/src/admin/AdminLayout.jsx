@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { id: 'segments', label: 'Segmentatsiya', icon: Target },
   { id: 'spending', label: 'Xarajat Tahlili', icon: TrendingUp },
   { id: 'channels', label: 'Kanallar', icon: Megaphone },
-  { id: 'broadcast', label: 'Broadcast', icon: Send },
+  { id: 'ads', label: 'Reklama', icon: Send },
   { id: 'ai-chat', label: 'AI Chat', icon: Bot },
   { id: 'settings', label: 'Sozlamalar', icon: Settings },
 ];

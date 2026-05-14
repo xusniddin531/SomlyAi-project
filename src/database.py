@@ -55,6 +55,7 @@ broadcasts_collection = db["broadcasts"]
 financial_history_collection = db["financial_history"]
 channel_subscriptions_collection = db["channel_subscriptions"]
 qr_scans_collection = db["qr_scans"]
+ads_collection = db["ads"]
 # ═══════════════════════════════════════
 # REFERRAL OPERATIONS
 # ═══════════════════════════════════════
@@ -2283,3 +2284,119 @@ async def get_qr_scan_stats() -> dict:
         "fetch_failed": fetch_failed,
         "success_rate": round((success / total * 100), 1) if total > 0 else 0
     }
+
+
+# ═══════════════════════════════════════
+# ADVERTISEMENT OPERATIONS
+# ═══════════════════════════════════════
+
+async def _generate_ad_id() -> str:
+    """Generate next sequential ad ID like AD001, AD002..."""
+    last = await ads_collection.find_one(sort=[("seq", -1)])
+    seq = (last.get("seq", 0) if last else 0) + 1
+    return f"AD{seq:03d}", seq
+
+
+async def create_ad(data: dict) -> dict:
+    """Create a new advertisement."""
+    ad_id, seq = await _generate_ad_id()
+    doc = {
+        "_id": ad_id,
+        "seq": seq,
+        "name": data.get("name", "Nomsiz reklama"),
+        "content_type": data.get("content_type", "text"),  # text|photo|video|document|photo_text
+        "text": data.get("text", ""),
+        "media_file_id": data.get("media_file_id"),  # Telegram file_id
+        "media_url": data.get("media_url"),  # temporary upload path
+        "caption": data.get("caption", ""),
+        "inline_buttons": data.get("inline_buttons", []),  # [[{text, url}]]
+        "targets": data.get("targets", ["bot"]),  # ["bot", "@channel"]
+        "segment_mode": data.get("segment_mode", "all"),  # all | segment
+        "segment_filters": data.get("segment_filters", {}),
+        "schedule_type": data.get("schedule_type", "now"),  # now | scheduled
+        "scheduled_at": data.get("scheduled_at"),
+        "duration_hours": data.get("duration_hours"),
+        "status": "draft",  # draft|scheduled|sending|completed|stopped
+        "stats": {"sent": 0, "failed": 0, "total": 0},
+        "created_at": datetime.utcnow(),
+        "created_by": data.get("created_by"),
+    }
+    await ads_collection.insert_one(doc)
+    return doc
+
+
+async def get_ads(limit: int = 50, offset: int = 0) -> list:
+    """Get all ads ordered by creation date (newest first)."""
+    cursor = ads_collection.find().sort("created_at", -1).skip(offset).limit(limit)
+    ads = []
+    async for ad in cursor:
+        ad["_id"] = str(ad["_id"])
+        if "created_at" in ad and hasattr(ad["created_at"], "strftime"):
+            ad["created_at"] = ad["created_at"].strftime("%Y-%m-%d %H:%M")
+        if "scheduled_at" in ad and ad["scheduled_at"] and hasattr(ad["scheduled_at"], "strftime"):
+            ad["scheduled_at"] = ad["scheduled_at"].strftime("%Y-%m-%d %H:%M")
+        ads.append(ad)
+    return ads
+
+
+async def get_ad(ad_id: str) -> dict:
+    """Get a single ad by ID."""
+    ad = await ads_collection.find_one({"_id": ad_id})
+    if ad:
+        ad["_id"] = str(ad["_id"])
+        if "created_at" in ad and hasattr(ad["created_at"], "strftime"):
+            ad["created_at"] = ad["created_at"].strftime("%Y-%m-%d %H:%M")
+        if "scheduled_at" in ad and ad["scheduled_at"] and hasattr(ad["scheduled_at"], "strftime"):
+            ad["scheduled_at"] = ad["scheduled_at"].strftime("%Y-%m-%d %H:%M")
+    return ad
+
+
+async def update_ad(ad_id: str, updates: dict) -> bool:
+    """Update an ad's fields."""
+    result = await ads_collection.update_one(
+        {"_id": ad_id},
+        {"$set": updates}
+    )
+    return result.modified_count > 0
+
+
+async def delete_ad(ad_id: str) -> bool:
+    """Delete an ad."""
+    result = await ads_collection.delete_one({"_id": ad_id})
+    return result.deleted_count > 0
+
+
+async def get_ads_count() -> int:
+    """Get total number of ads."""
+    return await ads_collection.count_documents({})
+
+
+async def estimate_ad_reach(targets: list, segment_mode: str, segment_filters: dict) -> dict:
+    """Estimate how many users/subscribers the ad will reach."""
+    result = {"bot_users": 0, "channel_subscribers": 0, "total": 0, "details": []}
+
+    if "bot" in targets:
+        query = {"is_active": True}
+        if segment_mode == "segment" and segment_filters:
+            if segment_filters.get("age_groups"):
+                query["age_group"] = {"$in": segment_filters["age_groups"]}
+            if segment_filters.get("genders"):
+                query["gender"] = {"$in": segment_filters["genders"]}
+            if segment_filters.get("regions"):
+                query["region"] = {"$in": segment_filters["regions"]}
+            if segment_filters.get("languages"):
+                query["language"] = {"$in": segment_filters["languages"]}
+        count = await users_collection.count_documents(query)
+        result["bot_users"] = count
+        result["details"].append({"target": "🤖 Bot foydalanuvchilar", "count": count})
+
+    # Channel subscribers from channel_subscriptions_collection
+    for t in targets:
+        if t.startswith("@"):
+            ch = await channel_subscriptions_collection.find_one({"username": t})
+            count = ch.get("subscriber_count", 0) if ch else 0
+            result["channel_subscribers"] += count
+            result["details"].append({"target": f"📢 {t}", "count": count})
+
+    result["total"] = result["bot_users"] + result["channel_subscribers"]
+    return result
