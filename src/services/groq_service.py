@@ -900,7 +900,7 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
                 '  "emoji": "Emoji",\n'
                 '  "confidence": 0.0-1.0\n'
                 "}\n\n"
-                "Agar kategoriya topilmasa, 'Boshqa xarajat' ro'yxatidan foydalanish kerak."
+                "Agar kiritilgan tavsif mavjud kategoriyalarga mos kelmasa, MAVJUD KATEGORIYALARGA TIQISHTIRMA. Uning o'rniga eng mos va qisqa YANGI KATEGORIYA nomini yarat (masalan: 'Gullar', 'Kiyim', 'Sovg'a')."
             )},
             {"role": "user", "content": f"Tavsif: {description}"}
         ]
