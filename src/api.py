@@ -251,14 +251,19 @@ async def get_dashboard(request):
         "date": {"$gte": prev_sd, "$lte": prev_ed}
     }).to_list(length=1000)
     
-    recent_txs = sorted(curr_txs, key=lambda x: x.get("created_at", ""), reverse=True)[:5]
+    recent_txs = sorted(curr_txs, key=lambda x: x.get("created_at", ""), reverse=True)
     formatted_txs = [{
         "id": str(tx["_id"]),
         "type": tx["type"],
         "amount": tx["amount"],
         "category": tx.get("category", "Boshqa"),
         "date": tx.get("date", ""),
-        "desc": tx.get("description", "")
+        "desc": tx.get("description", ""),
+        "created_at": tx.get("created_at", "").isoformat() if hasattr(tx.get("created_at", ""), 'isoformat') else str(tx.get("created_at", "")),
+        "balance_name": tx.get("balance_name", tx.get("currency", "UZS")),
+        "debt_person": tx.get("person", ""),
+        "debt_deadline": tx.get("due_date", ""),
+        "voice_file_url": tx.get("voice_file_url", "")
     } for tx in recent_txs]
 
     # Aggregations

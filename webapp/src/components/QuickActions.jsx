@@ -120,7 +120,7 @@ const QuickActions = ({ balances, onSuccess }) => {
 
       {activeModal && (
         <div className="modal-overlay" onClick={() => setActiveModal(null)} style={{ zIndex: 1000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: '24px 24px 0 0', padding: '24px 20px', position: 'absolute', bottom: 0, width: '100%', left: 0 }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', padding: '24px 20px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <h2 style={{ fontSize: '20px', fontWeight: '700', margin: 0 }}>
                 {activeModal === 'kirim' ? 'Yangi kirim' : activeModal === 'chiqim' ? 'Yangi chiqim' : activeModal === 'qarz' ? 'Qarz kiritish' : 'O\'tkazma'}
