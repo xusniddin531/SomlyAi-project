@@ -2590,6 +2590,107 @@ async def admin_stop_ad(request):
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
+@routes.get('/api/admin/ads/{ad_id}/stats')
+async def admin_ad_stats(request):
+    """Get detailed statistics for a single ad."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_ad, ads_collection
+        ad_id = request.match_info['ad_id']
+
+        # Get raw ad from DB (without date formatting) for time calculations
+        raw_ad = await ads_collection.find_one({"_id": ad_id})
+        if not raw_ad:
+            return set_cors(web.json_response({"error": "Ad not found"}, status=404))
+
+        ad = await get_ad(ad_id)
+
+        # Calculate remaining time if ad has duration
+        remaining = None
+        if raw_ad.get("duration_hours") and raw_ad.get("started_at"):
+            from datetime import timedelta
+            expire_time = raw_ad["started_at"] + timedelta(hours=raw_ad["duration_hours"])
+            now = datetime.utcnow()
+            if now < expire_time and raw_ad.get("status") not in ("stopped", "completed"):
+                diff = expire_time - now
+                remaining = {
+                    "hours": int(diff.total_seconds() // 3600),
+                    "minutes": int((diff.total_seconds() % 3600) // 60),
+                    "total_seconds": int(diff.total_seconds())
+                }
+            elif now >= expire_time and raw_ad.get("status") == "sending":
+                # Auto-expire
+                from src.database import update_ad
+                await update_ad(ad_id, {"status": "completed"})
+                ad["status"] = "completed"
+
+        stats = ad.get("stats", {})
+        total = stats.get("total", 0)
+        sent_count = stats.get("sent", 0)
+
+        # Engagement metrics (simulated based on sent count for now)
+        # In production, these would come from tracking pixel/webhook data
+        engagement = {
+            "sent": sent_count,
+            "failed": stats.get("failed", 0),
+            "blocked": stats.get("blocked", 0),
+            "total": total,
+            "sent_pct": round(sent_count / total * 100, 1) if total > 0 else 0
+        }
+
+        result = {
+            **ad,
+            "engagement": engagement,
+            "remaining": remaining,
+            "channel_results": ad.get("channel_results", {}),
+            "duration": ad.get("duration", ""),
+        }
+        return set_cors(web.json_response(result))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.get('/api/admin/ads/export/csv')
+async def admin_ads_export_csv(request):
+    """Export all ads as CSV for archive."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_ads
+        import csv
+        import io
+
+        ads = await get_ads(limit=500)
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["ID", "Nomi", "Turi", "Holat", "Yuborildi", "Xato", "Bloklangan", "Jami", "Yaratildi", "Davomiyligi"])
+        for ad in ads:
+            s = ad.get("stats", {})
+            writer.writerow([
+                ad.get("_id", ""),
+                ad.get("name", ""),
+                ad.get("content_type", ""),
+                ad.get("status", ""),
+                s.get("sent", 0),
+                s.get("failed", 0),
+                s.get("blocked", 0),
+                s.get("total", 0),
+                ad.get("created_at", ""),
+                ad.get("duration", "")
+            ])
+
+        csv_content = output.getvalue()
+        return set_cors(web.Response(
+            text=csv_content,
+            content_type='text/csv',
+            headers={'Content-Disposition': 'attachment; filename="somly_ads_archive.csv"'}
+        ))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
 async def on_shutdown(app):
     """Graceful shutdown: Notify all WebSockets before closing."""
     logger.info("Server shutting down, broadcasting to all WebSockets...")

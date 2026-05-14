@@ -8,6 +8,7 @@ import AdminChannels from './pages/AdminChannels';
 import AdminChannelDetail from './pages/AdminChannelDetail';
 import AdminAds from './pages/AdminAds';
 import AdminAdCreate from './pages/AdminAdCreate';
+import AdminAdStats from './pages/AdminAdStats';
 import AdminAIChat from './pages/AdminAIChat';
 import AdminSpending from './pages/AdminSpending';
 import AdminSettings from './pages/AdminSettings';
@@ -88,6 +89,7 @@ const AdminApp = () => {
       case 'channel-stats': return <AdminChannelDetail token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'ads': return <AdminAds token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'ad-create': return <AdminAdCreate token={token} navigateTo={handleNavigate} {...pageProps} />;
+      case 'ad-stats': return <AdminAdStats token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'ai-chat': return <AdminAIChat token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'spending': return <AdminSpending token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'settings': return <AdminSettings token={token} onThemeToggle={handleThemeToggle} isDark={isDark} navigateTo={handleNavigate} {...pageProps} />;
