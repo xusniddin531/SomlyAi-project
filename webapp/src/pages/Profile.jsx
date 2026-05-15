@@ -319,7 +319,7 @@ const ProfilePage = ({ initData }) => {
 
       {/* 4-GURUH */}
       <Section>
-        <ActionRow icon={<FileText size={20}/>} label={t('settings.terms')} color="#8E8E93" onClick={() => window.open('https://somly.ai/terms', '_blank')} />
+        <ActionRow icon={<FileText size={20}/>} label={t('settings.terms')} color="#8E8E93" onClick={() => navigate('/terms')} />
         <ActionRow icon={<Shield size={20}/>} label={t('settings.privacy')} color="#8E8E93" onClick={() => navigate('/privacy')} isLast />
       </Section>
 

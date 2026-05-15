@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Users, Target, Megaphone, Send, Bot, TrendingUp, Settings, Moon, Sun, LogOut, PieChart } from 'lucide-react';
+import { BarChart3, Users, Target, Megaphone, Send, Bot, TrendingUp, Settings, Moon, Sun, LogOut } from 'lucide-react';
 
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
@@ -7,8 +7,7 @@ const NAV_ITEMS = [
   { id: 'segments', label: 'Segmentatsiya', icon: Target },
   { id: 'spending', label: 'Xarajat Tahlili', icon: TrendingUp },
   { id: 'channels', label: 'Kanallar', icon: Megaphone },
-  { id: 'ads', label: 'Reklama', icon: Send },
-  { id: 'ad-stats', label: 'Statistika', icon: PieChart },
+  { id: 'broadcast', label: 'Broadcast', icon: Send },
   { id: 'ai-chat', label: 'AI Chat', icon: Bot },
   { id: 'settings', label: 'Sozlamalar', icon: Settings },
 ];

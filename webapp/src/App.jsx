@@ -18,6 +18,7 @@ import RemindersPage from './pages/Reminders';
 import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
 import PrivacyPage from './pages/Privacy';
+import TermsPage from './pages/Terms';
 
 import { wsService } from './utils/websocket';
 import { fetchApi } from './utils/api';
@@ -62,6 +63,7 @@ const AppContent = ({ initData, isOffline, wasOffline, isSyncing }) => {
             <Route path="/settings" element={<SettingsPage initData={initData} />} />
             <Route path="/notifications" element={<NotificationsPage initData={initData} />} />
             <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
           </Routes>
         </div>
 
