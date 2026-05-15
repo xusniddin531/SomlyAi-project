@@ -1740,36 +1740,45 @@ const BalancesPage = ({ initData }) => {
       )}
       {/* Add Shared Wallet Modal */}
       {activeModal === 'add_shared' && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'flex-end', zIndex: 1000 }} onClick={() => setActiveModal(null)}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card)', width: '100%', borderRadius: '24px 24px 0 0', padding: '24px 20px' }}>
-            <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: '700' }}>Umumiy hamyon yaratish</h2>
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 }} onClick={() => setActiveModal(null)}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--card)', width: '100%', maxWidth: '500px', borderRadius: '24px 24px 0 0', padding: '24px 20px', paddingBottom: 'max(24px, calc(24px + env(safe-area-inset-bottom)))', maxHeight: '85vh', overflowY: 'auto', boxSizing: 'border-box', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+            <div style={{ width: '36px', height: '5px', borderRadius: '3px', background: 'var(--border)', margin: '0 auto 16px' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h2 style={{ margin: 0, fontSize: '20px', fontWeight: '700' }}>Umumiy hamyon yaratish</h2>
+              <div onClick={() => setActiveModal(null)} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                <X size={18} color="var(--text-secondary)" />
+              </div>
+            </div>
             <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Hamyon nomi</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>Hamyon nomi</label>
               <input 
+                className="apple-input"
                 type="text" 
                 placeholder="Masalan: Oila balansi" 
                 value={addForm.title} 
                 onChange={(e) => setAddForm({...addForm, title: e.target.value})}
-                style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)' }}
+                style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '15px', boxSizing: 'border-box', outline: 'none' }}
               />
             </div>
-            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
-              <div style={{ flex: 1 }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Boshlang'ich summa</label>
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>Boshlang'ich summa</label>
                 <input 
+                  className="apple-input"
                   type="number" 
                   placeholder="0" 
                   value={addForm.amount} 
                   onChange={(e) => setAddForm({...addForm, amount: e.target.value})}
-                  style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '15px', boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
-              <div style={{ width: '100px' }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Valyuta</label>
+              <div style={{ width: '100px', flexShrink: 0 }}>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>Valyuta</label>
                 <select 
+                  className="apple-input"
                   value={addForm.currency} 
                   onChange={(e) => setAddForm({...addForm, currency: e.target.value})}
-                  style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 8px', borderRadius: '12px', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 8px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
                 >
                   <option value="UZS">UZS</option>
                   <option value="USD">USD</option>
@@ -1777,23 +1786,25 @@ const BalancesPage = ({ initData }) => {
               </div>
             </div>
             <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>A'zolar (Telefon raqami)</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>A'zolar (Telefon raqami)</label>
               <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
                 <input 
+                  className="apple-input"
                   type="tel" 
                   placeholder="+998901234567" 
                   value={newMemberPhone} 
                   onChange={(e) => setNewMemberPhone(e.target.value)}
-                  style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)' }}
+                  style={{ flex: 1, minWidth: 0, background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '14px', boxSizing: 'border-box', outline: 'none' }}
                 />
                 <button 
+                  className="quick-action-btn"
                   onClick={() => {
                     if (newMemberPhone && !addForm.members.includes(newMemberPhone)) {
                       setAddForm({...addForm, members: [...addForm.members, newMemberPhone]});
                       setNewMemberPhone('');
                     }
                   }}
-                  style={{ background: '#8B5CF6', color: '#FFF', border: 'none', borderRadius: '12px', padding: '0 16px', fontWeight: 'bold' }}
+                  style={{ background: '#8B5CF6', color: '#FFF', border: 'none', borderRadius: '12px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', flexShrink: 0 }}
                 >
                   +
                 </button>
@@ -1801,15 +1812,16 @@ const BalancesPage = ({ initData }) => {
               {addForm.members.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
                   {addForm.members.map((m, idx) => (
-                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg)', padding: '8px 12px', borderRadius: '8px' }}>
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg)', padding: '8px 12px', borderRadius: '8px' }}>
                       <span style={{ fontSize: '13px' }}>{m}</span>
-                      <X size={16} color="var(--danger)" style={{ cursor: 'pointer' }} onClick={() => setAddForm({...addForm, members: addForm.members.filter(x => x !== m)})} />
+                      <X size={16} color="var(--danger)" style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => setAddForm({...addForm, members: addForm.members.filter(x => x !== m)})} />
                     </div>
                   ))}
                 </div>
               )}
             </div>
             <button 
+              className="apple-submit-btn"
               onClick={async () => {
                 try {
                   const res = await fetchApi('/shared_wallets', { 
@@ -1840,7 +1852,6 @@ const BalancesPage = ({ initData }) => {
                   alert(e.message);
                 }
               }}
-              style={{ width: '100%', padding: '16px', background: '#8B5CF6', border: 'none', borderRadius: '16px', color: '#fff', fontWeight: 'bold' }}
             >
               Yaratish
             </button>
