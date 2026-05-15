@@ -13,7 +13,12 @@ const QuickActions = ({ balances, onSuccess }) => {
 
   useEffect(() => {
     if (activeModal && balances?.length > 0) {
-      setForm(prev => ({ ...prev, balanceId: balances[0].id, toBalanceId: balances.length > 1 ? balances[1].id : balances[0].id, currency: balances[0].currency }));
+      setForm(prev => ({
+        ...prev,
+        balanceId: balances[0].currency,
+        toBalanceId: balances.length > 1 ? balances[1].currency : balances[0].currency,
+        currency: balances[0].currency
+      }));
     }
   }, [activeModal, balances]);
 
@@ -39,12 +44,9 @@ const QuickActions = ({ balances, onSuccess }) => {
       let payload = { user_id: getUserId(), amount: parseFloat(form.amount), description: form.note || '' };
       let endpoint = '';
       
-      const bal = balances.find(b => b.id === form.balanceId);
+      const bal = balances.find(b => b.currency === form.balanceId);
       if (bal) {
         payload.currency = bal.currency;
-        if (bal.owner_id) {
-            payload.wallet_id = bal.id;
-        }
       }
 
       if (activeModal === 'kirim' || activeModal === 'chiqim') {
@@ -67,6 +69,11 @@ const QuickActions = ({ balances, onSuccess }) => {
             wallet_id: payload.wallet_id
         };
       } else if (activeModal === 'transfer') {
+        if (form.balanceId === form.toBalanceId) {
+          alert('Bir xil balansga o\'tkazish mumkin emas!');
+          setLoading(false);
+          return;
+        }
         endpoint = '/balances/transfer';
         payload = {
             user_id: getUserId(),
@@ -265,7 +272,7 @@ const QuickActions = ({ balances, onSuccess }) => {
                     <label style={labelStyle}>{activeModal === 'transfer' ? 'Dan (Balans)' : 'Balans'}</label>
                     <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})}
                       style={selectStyle}>
-                      {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
+                      {balances?.map(b => <option key={b.currency} value={b.currency}>{b.title} ({b.currency})</option>)}
                     </select>
                   </div>
                   {activeModal === 'transfer' && (
@@ -273,7 +280,7 @@ const QuickActions = ({ balances, onSuccess }) => {
                       <label style={labelStyle}>Ga (Balans)</label>
                       <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})}
                         style={selectStyle}>
-                        {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
+                        {balances?.map(b => <option key={b.currency} value={b.currency}>{b.title} ({b.currency})</option>)}
                       </select>
                     </div>
                   )}
