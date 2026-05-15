@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, ArrowUpRight, ArrowDownRight, Handshake, ChevronRight, Calendar, X, RefreshCw, User, Eye, EyeOff } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Plus, ArrowUpRight, ArrowDownRight, Handshake, ChevronRight, ChevronLeft, Calendar, X, RefreshCw, User, Eye, EyeOff } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -60,6 +61,14 @@ const DashboardPage = ({ initData }) => {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
+  // Date range for statistics widget
+  const [dateRange, setDateRange] = useState(() => {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { start, end: now };
+  });
+  const [dateModal, setDateModal] = useState(false);
+
   // Extract user info
   const userName = window.Telegram?.WebApp?.initDataUnsafe?.user?.first_name || 'Foydalanuvchi';
   const initials = userName.substring(0, 2).toUpperCase();
@@ -67,7 +76,9 @@ const DashboardPage = ({ initData }) => {
   const loadData = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     try {
-      const response = await fetchApi('/dashboard');
+      const s = `${dateRange.start.getFullYear()}-${String(dateRange.start.getMonth()+1).padStart(2,'0')}-${String(dateRange.start.getDate()).padStart(2,'0')}`;
+      const e = `${dateRange.end.getFullYear()}-${String(dateRange.end.getMonth()+1).padStart(2,'0')}-${String(dateRange.end.getDate()).padStart(2,'0')}`;
+      const response = await fetchApi(`/dashboard?start=${s}&end=${e}`);
       if (response && !response.error) {
         setData(response);
         setError(false);
@@ -98,7 +109,45 @@ const DashboardPage = ({ initData }) => {
     ];
     events.forEach(e => window.addEventListener(e, handleWsEvent));
     return () => events.forEach(e => window.removeEventListener(e, handleWsEvent));
-  }, [handleWsEvent]);
+  }, [handleWsEvent, dateRange]);
+
+  // Date helpers
+  const fmtDate = (d) => {
+    const months = ['Yan','Fev','Mar','Apr','May','Iyn','Iyl','Avg','Sen','Okt','Noy','Dek'];
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+  };
+  const fmtDateApi = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+
+  const shiftDate = (dir) => {
+    const diff = dateRange.end - dateRange.start;
+    const days = Math.round(diff / 86400000) + 1;
+    setDateRange(prev => {
+      const ns = new Date(prev.start);
+      const ne = new Date(prev.end);
+      ns.setDate(ns.getDate() + (dir * days));
+      ne.setDate(ne.getDate() + (dir * days));
+      return { start: ns, end: ne };
+    });
+  };
+
+  const setPreset = (type) => {
+    const now = new Date();
+    if (type === 'today') {
+      setDateRange({ start: new Date(now), end: new Date(now) });
+    } else if (type === 'week') {
+      const s = new Date(now);
+      s.setDate(s.getDate() - 6);
+      setDateRange({ start: s, end: new Date(now) });
+    } else if (type === 'month') {
+      const s = new Date(now.getFullYear(), now.getMonth(), 1);
+      setDateRange({ start: s, end: new Date(now) });
+    } else if (type === 'lastMonth') {
+      const s = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const e = new Date(now.getFullYear(), now.getMonth(), 0);
+      setDateRange({ start: s, end: e });
+    }
+    setDateModal(false);
+  };
 
   // Detect new transactions and mark them for slide-down animation
   useEffect(() => {
@@ -323,14 +372,37 @@ const DashboardPage = ({ initData }) => {
       <div className="card" style={{ padding: '20px', marginBottom: '24px' }}>
         <div className="flex-between" style={{ marginBottom: '20px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: '600', margin: 0 }}>Statistika</h2>
-          <Calendar size={20} color="var(--text-secondary)" />
+          <button
+            onClick={() => setDateModal(true)}
+            className="clickable"
+            style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--text-secondary)' }}
+          >
+            <Calendar size={18} />
+          </button>
         </div>
         
         {/* Date Selector */}
         <div className="flex-between" style={{ marginBottom: '20px' }}>
-          <ChevronRight size={20} style={{ transform: 'rotate(180deg)', color: 'var(--text-primary)', cursor: 'pointer' }} />
-          <span style={{ fontSize: '15px', fontWeight: '600', color: 'var(--text-primary)' }}>Apr 1 – Apr 20</span>
-          <ChevronRight size={20} color="var(--text-primary)" style={{ cursor: 'pointer' }} />
+          <button
+            onClick={() => shiftDate(-1)}
+            className="clickable"
+            style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', cursor: 'pointer' }}
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            onClick={() => setDateModal(true)}
+            style={{ background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: '15px', fontWeight: '600', cursor: 'pointer' }}
+          >
+            {fmtDate(dateRange.start)} – {fmtDate(dateRange.end)}
+          </button>
+          <button
+            onClick={() => shiftDate(1)}
+            className="clickable"
+            style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '10px', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', cursor: 'pointer' }}
+          >
+            <ChevronRight size={18} />
+          </button>
         </div>
 
         {/* Currency Filters */}
@@ -440,6 +512,56 @@ const DashboardPage = ({ initData }) => {
           loadData(); // Reload data after modal closes
         }} 
       />
+
+      {/* Date Picker Modal */}
+      {dateModal && createPortal(
+        <div
+          onClick={() => setDateModal(false)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+            zIndex: 9999, display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--card-solid)', borderRadius: '24px 24px 0 0',
+              padding: '24px 20px', paddingBottom: 'max(24px, calc(24px + env(safe-area-inset-bottom)))',
+              width: '100%', maxWidth: '500px', boxSizing: 'border-box',
+              animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            <div style={{ width: '36px', height: '5px', borderRadius: '3px', background: 'var(--border-solid)', margin: '0 auto 16px' }} />
+            <div className="flex-between" style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '20px', fontWeight: 'bold', margin: 0 }}>Davrni tanlang</h3>
+              <div onClick={() => setDateModal(false)} style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                <X size={18} color="var(--text-secondary)" />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ background: 'var(--bg)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Boshlang'ich</p>
+                <input className="apple-input" type="date" value={fmtDateApi(dateRange.start)} onChange={e => setDateRange(p => ({...p, start: new Date(e.target.value)}))} style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ background: 'var(--bg)', padding: '12px', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Yakuniy</p>
+                <input className="apple-input" type="date" value={fmtDateApi(dateRange.end)} onChange={e => setDateRange(p => ({...p, end: new Date(e.target.value)}))} style={{ width: '100%', background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', boxSizing: 'border-box' }} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', flexWrap: 'wrap' }}>
+              {[{l: 'Bugun', k: 'today'}, {l: 'Hafta', k: 'week'}, {l: 'Shu oy', k: 'month'}, {l: "O'tgan oy", k: 'lastMonth'}].map(p => (
+                <button key={p.k} className="quick-action-btn" onClick={() => setPreset(p.k)} style={{ flex: 1, padding: '10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: '10px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: '500', cursor: 'pointer', minWidth: '70px' }}>{p.l}</button>
+              ))}
+            </div>
+
+            <button className="apple-submit-btn" onClick={() => setDateModal(false)}>Qo'llash</button>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* End of Dashboard */}
     </div>
