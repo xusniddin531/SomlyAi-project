@@ -10,10 +10,11 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (libzbar for QR code scanning)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libzbar0 \
+    libzbar-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
