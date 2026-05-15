@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Plus, Minus, Handshake, ArrowRightLeft, X, ScanLine } from 'lucide-react';
 import { fetchApi } from '../utils/api';
 import QrScanner from '../pages/QrScanner';
@@ -86,6 +87,41 @@ const QuickActions = ({ balances, onSuccess }) => {
     }
   };
 
+  /* ══ Shared input style ══ */
+  const inputStyle = {
+    width: '100%',
+    background: 'var(--bg)',
+    border: '1px solid var(--border)',
+    padding: '14px',
+    borderRadius: '12px',
+    color: 'var(--text-primary)',
+    fontSize: '16px',
+    boxSizing: 'border-box',
+    outline: 'none',
+  };
+
+  const selectStyle = {
+    ...inputStyle,
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238E8E93' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 12px center',
+    paddingRight: '36px',
+  };
+
+  const labelStyle = {
+    fontSize: '13px',
+    color: 'var(--text-secondary)',
+    marginBottom: '8px',
+    display: 'block',
+    fontWeight: '500',
+  };
+
+  const fieldGroup = {
+    marginBottom: '16px',
+  };
+
   return (
     <div style={{ marginTop: '24px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
@@ -118,89 +154,182 @@ const QuickActions = ({ balances, onSuccess }) => {
         />
       )}
 
-      {activeModal && (
-        <div className="modal-overlay" onClick={() => setActiveModal(null)} style={{ zIndex: 1000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)' }}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ background: 'var(--card)', borderRadius: '24px 24px 0 0', padding: '24px 20px', position: 'absolute', bottom: 0, width: '100%', left: 0 }}>
+      {activeModal && createPortal(
+        <div
+          onClick={() => setActiveModal(null)}
+          style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+            zIndex: 9999,
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--card-solid)',
+              borderRadius: '24px 24px 0 0',
+              padding: '24px 20px',
+              paddingBottom: 'max(24px, calc(24px + env(safe-area-inset-bottom)))',
+              width: '100%',
+              maxWidth: '500px',
+              maxHeight: '85vh',
+              overflowY: 'auto',
+              boxSizing: 'border-box',
+              animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {/* Handle bar */}
+            <div style={{ width: '36px', height: '5px', borderRadius: '3px', background: 'var(--border-solid)', margin: '0 auto 16px' }} />
+
+            {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: '700', margin: 0 }}>
-                {activeModal === 'kirim' ? 'Yangi kirim' : activeModal === 'chiqim' ? 'Yangi chiqim' : activeModal === 'qarz' ? 'Qarz kiritish' : 'O\'tkazma'}
+              <h2 style={{ fontSize: '20px', fontWeight: '700', margin: 0, color: 'var(--text-primary)' }}>
+                {activeModal === 'kirim' ? '📥 Yangi kirim' : activeModal === 'chiqim' ? '📤 Yangi chiqim' : activeModal === 'qarz' ? '🤝 Qarz kiritish' : '🔄 O\'tkazma'}
               </h2>
-              <X size={24} color="var(--text-secondary)" onClick={() => setActiveModal(null)} style={{ cursor: 'pointer' }} />
+              <div
+                onClick={() => setActiveModal(null)}
+                style={{
+                  width: '32px', height: '32px', borderRadius: '50%',
+                  background: 'var(--bg)', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', cursor: 'pointer',
+                }}
+              >
+                <X size={18} color="var(--text-secondary)" />
+              </div>
             </div>
 
+            {/* ═══ Qarz direction toggle ═══ */}
             {activeModal === 'qarz' && (
               <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: 'var(--bg)', padding: '4px', borderRadius: '12px' }}>
-              <button onClick={() => setForm({...form, direction: 'berdim'})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: form.direction === 'berdim' ? 'var(--card)' : 'transparent', color: form.direction === 'berdim' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: form.direction === 'berdim' ? '600' : '500', cursor: 'pointer' }}>📤 Berdim</button>
-                <button onClick={() => setForm({...form, direction: 'oldim'})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: form.direction === 'oldim' ? 'var(--card)' : 'transparent', color: form.direction === 'oldim' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: form.direction === 'oldim' ? '600' : '500', cursor: 'pointer' }}>📥 Oldim</button>
+                <button onClick={() => setForm({...form, direction: 'berdim'})} style={{
+                  flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                  background: form.direction === 'berdim' ? 'var(--card-solid)' : 'transparent',
+                  color: form.direction === 'berdim' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontWeight: form.direction === 'berdim' ? '600' : '500',
+                  boxShadow: form.direction === 'berdim' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.2s ease',
+                }}>📤 Berdim</button>
+                <button onClick={() => setForm({...form, direction: 'oldim'})} style={{
+                  flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
+                  background: form.direction === 'oldim' ? 'var(--card-solid)' : 'transparent',
+                  color: form.direction === 'oldim' ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  fontWeight: form.direction === 'oldim' ? '600' : '500',
+                  boxShadow: form.direction === 'oldim' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.2s ease',
+                }}>📥 Oldim</button>
               </div>
             )}
 
+            {/* ═══ Person (qarz only) ═══ */}
             {activeModal === 'qarz' && (
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Shaxs</label>
-                <input type="text" placeholder="Ism kiriting" value={form.person} onChange={e => setForm({...form, person: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
+              <div style={fieldGroup}>
+                <label style={labelStyle}>Shaxs</label>
+                <input type="text" placeholder="Ism kiriting" value={form.person}
+                  onChange={e => setForm({...form, person: e.target.value})}
+                  style={inputStyle}
+                />
               </div>
             )}
 
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Summa</label>
+            {/* ═══ Amount ═══ */}
+            <div style={fieldGroup}>
+              <label style={labelStyle}>Summa</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="number" placeholder="0" value={form.amount} onChange={handleAmountChange} style={{ flex: 1, background: 'var(--bg)', border: `1px solid ${amountError ? 'var(--danger)' : 'var(--border)'}`, padding: '14px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '16px', fontWeight: 'bold' }} />
-                {activeModal === 'qarz' ? (
-                  <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} style={{ background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }}>
+                <input type="number" placeholder="0" value={form.amount}
+                  onChange={handleAmountChange}
+                  style={{
+                    ...inputStyle,
+                    flex: 1,
+                    fontWeight: 'bold',
+                    borderColor: amountError ? 'var(--danger)' : 'var(--border)',
+                  }}
+                />
+                {activeModal === 'qarz' && (
+                  <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})}
+                    style={{ ...selectStyle, flex: '0 0 90px', width: '90px' }}>
                     <option value="UZS">UZS</option>
                     <option value="USD">USD</option>
                   </select>
-                ) : null}
+                )}
               </div>
-              {amountError && <p style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '4px', margin: 0 }}>{amountError}</p>}
+              {amountError && <p style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '6px', margin: '6px 0 0 0' }}>{amountError}</p>}
             </div>
 
+            {/* ═══ Balance selector (kirim/chiqim/transfer) ═══ */}
             {activeModal !== 'qarz' && (
-              <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Dan (Balans)</label>
-                  <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }}>
-                    {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
-                  </select>
-                </div>
-                {activeModal === 'transfer' && (
+              <div style={fieldGroup}>
+                <div style={{ display: 'flex', flexDirection: activeModal === 'transfer' ? 'column' : 'row', gap: '12px' }}>
                   <div style={{ flex: 1 }}>
-                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Ga (Balans)</label>
-                    <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }}>
+                    <label style={labelStyle}>{activeModal === 'transfer' ? 'Dan (Balans)' : 'Balans'}</label>
+                    <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})}
+                      style={selectStyle}>
                       {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
                     </select>
                   </div>
-                )}
+                  {activeModal === 'transfer' && (
+                    <div style={{ flex: 1 }}>
+                      <label style={labelStyle}>Ga (Balans)</label>
+                      <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})}
+                        style={selectStyle}>
+                        {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
+            {/* ═══ Category (kirim/chiqim only) ═══ */}
             {(activeModal === 'kirim' || activeModal === 'chiqim') && (
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Kategoriya</label>
-                <input type="text" placeholder="Masalan: Oziq-ovqat" value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
+              <div style={fieldGroup}>
+                <label style={labelStyle}>Kategoriya</label>
+                <input type="text" placeholder="Masalan: Oziq-ovqat" value={form.category}
+                  onChange={e => setForm({...form, category: e.target.value})}
+                  style={inputStyle}
+                />
               </div>
             )}
 
+            {/* ═══ Due date (qarz only) ═══ */}
             {activeModal === 'qarz' && (
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Muddat (ixtiyoriy)</label>
-                <input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
+              <div style={fieldGroup}>
+                <label style={labelStyle}>Muddat (ixtiyoriy)</label>
+                <input type="date" value={form.dueDate}
+                  onChange={e => setForm({...form, dueDate: e.target.value})}
+                  style={inputStyle}
+                />
               </div>
             )}
 
+            {/* ═══ Note ═══ */}
             {activeModal !== 'transfer' && (
               <div style={{ marginBottom: '24px' }}>
-                <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Izoh (ixtiyoriy)</label>
-                <input type="text" placeholder="Qo'shimcha ma'lumot" value={form.note} onChange={e => setForm({...form, note: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
+                <label style={labelStyle}>Izoh (ixtiyoriy)</label>
+                <input type="text" placeholder="Qo'shimcha ma'lumot" value={form.note}
+                  onChange={e => setForm({...form, note: e.target.value})}
+                  style={inputStyle}
+                />
               </div>
             )}
 
-            <button onClick={handleSubmit} disabled={loading || !form.amount || !!amountError} style={{ width: '100%', padding: '16px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: '16px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer', opacity: (loading || !form.amount || !!amountError) ? 0.5 : 1 }}>
+            {/* ═══ Submit ═══ */}
+            <button onClick={handleSubmit} disabled={loading || !form.amount || !!amountError}
+              style={{
+                width: '100%', padding: '16px',
+                background: 'var(--primary)', color: '#fff',
+                border: 'none', borderRadius: '16px',
+                fontSize: '16px', fontWeight: 'bold', cursor: 'pointer',
+                opacity: (loading || !form.amount || !!amountError) ? 0.5 : 1,
+                boxSizing: 'border-box',
+                transition: 'opacity 0.2s ease',
+              }}>
               {loading ? 'Saqlanmoqda...' : 'Saqlash'}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
