@@ -893,6 +893,131 @@ async def debt_action(request):
     except Exception as e:
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
+
+@routes.post('/api/transactions')
+async def create_transaction(request):
+    """Mini App dan yangi kirim/chiqim tranzaksiya yaratish."""
+    from src.database import insert_transaction, update_user_balance
+    try:
+        data = await request.json()
+        user_id = int(data.get('user_id', 0))
+        if not user_id:
+            return set_cors(web.json_response({"error": "Missing user_id"}, status=400))
+
+        tx_type = data.get('type', 'chiqim')  # 'kirim' or 'chiqim'
+        amount = float(data.get('amount', 0))
+        currency = data.get('currency', 'UZS').upper()
+        category = data.get('category', 'Boshqa xarajatlar')
+        description = data.get('description', '')
+        date = data.get('date', datetime.utcnow().strftime('%Y-%m-%d'))
+        affects_balance = data.get('affects_balance', True)
+        wallet_id = data.get('wallet_id')
+
+        if amount <= 0:
+            return set_cors(web.json_response({"error": "Amount must be positive"}, status=400))
+
+        tx_data = {
+            "telegram_id": user_id,
+            "type": tx_type,
+            "amount": amount,
+            "currency": currency,
+            "category": category,
+            "description": description,
+            "date": date,
+            "affects_balance": affects_balance,
+            "source": data.get('source', 'mini_app'),
+        }
+
+        if wallet_id:
+            tx_data["wallet_id"] = wallet_id
+            # Shared wallet balance update
+            from src.database import update_shared_wallet_balance
+            await update_shared_wallet_balance(wallet_id, amount, is_income=(tx_type == 'kirim'))
+        elif affects_balance:
+            await update_user_balance(user_id, currency, amount, is_income=(tx_type == 'kirim'))
+
+        tx_id = await insert_transaction(tx_data)
+
+        # Notify bot
+        bot = request.app.get('bot')
+        if bot and user_id:
+            user = await get_user(user_id)
+            user_name = user.get("full_name", "Siz")
+            emoji = "📥" if tx_type == "kirim" else "📤"
+            msg = f"{emoji} {user_name} Mini Appda:\n{tx_type.capitalize()}: {amount:,.0f} {currency}\nKategoriya: {category}"
+            try:
+                await bot.send_message(chat_id=user_id, text=msg)
+            except Exception:
+                pass
+
+        return set_cors(web.json_response({"success": True, "id": tx_id}))
+    except Exception as e:
+        logger.error(f"Create transaction error: {e}")
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+@routes.post('/api/debts')
+async def create_debt(request):
+    """Mini App dan yangi qarz yaratish."""
+    from src.database import insert_debt
+    try:
+        data = await request.json()
+        user_id = int(data.get('user_id', 0))
+        if not user_id:
+            return set_cors(web.json_response({"error": "Missing user_id"}, status=400))
+
+        direction = data.get('direction', 'berdim')  # 'berdim' or 'oldim'
+        amount = float(data.get('amount', 0))
+        currency = data.get('currency', 'UZS').upper()
+        person = data.get('person', '')
+        due_date = data.get('due_date') or None
+        description = data.get('description', '')
+        wallet_id = data.get('wallet_id')
+
+        if amount <= 0:
+            return set_cors(web.json_response({"error": "Amount must be positive"}, status=400))
+        if not person:
+            return set_cors(web.json_response({"error": "Person name required"}, status=400))
+
+        # Map frontend direction to backend direction
+        # 'berdim' = I gave money = bergan (they owe me)
+        # 'oldim' = I took money = olgan (I owe them)
+        db_direction = "bergan" if direction == "berdim" else "olgan"
+
+        debt_data = {
+            "telegram_id": user_id,
+            "direction": db_direction,
+            "amount": amount,
+            "currency": currency,
+            "person": person,
+            "due_date": due_date,
+            "description": description,
+        }
+
+        if wallet_id:
+            debt_data["wallet_id"] = wallet_id
+
+        debt_id = await insert_debt(debt_data)
+
+        # Notify bot
+        bot = request.app.get('bot')
+        if bot and user_id:
+            user = await get_user(user_id)
+            user_name = user.get("full_name", "Siz")
+            emoji = "📤" if direction == "berdim" else "📥"
+            action = "berdi" if direction == "berdim" else "oldi"
+            msg = f"{emoji} {user_name} Mini Appda:\nQarz {action}: {amount:,.0f} {currency}\nShaxs: {person}"
+            try:
+                await bot.send_message(chat_id=user_id, text=msg)
+            except Exception:
+                pass
+
+        return set_cors(web.json_response({"success": True, "id": debt_id}))
+    except Exception as e:
+        logger.error(f"Create debt error: {e}")
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
 @routes.put('/api/transactions/{tx_id}')
 async def edit_transaction(request):
     from src.database import update_transaction

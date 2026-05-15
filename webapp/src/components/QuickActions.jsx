@@ -130,24 +130,24 @@ const QuickActions = ({ balances, onSuccess }) => {
 
             {activeModal === 'qarz' && (
               <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: 'var(--bg)', padding: '4px', borderRadius: '12px' }}>
-                <button onClick={() => setForm({...form, direction: 'berdim'})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: form.direction === 'berdim' ? 'var(--card)' : 'transparent', color: form.direction === 'berdim' ? '#fff' : 'var(--text-secondary)', fontWeight: form.direction === 'berdim' ? '600' : '500' }}>📤 Berdim</button>
-                <button onClick={() => setForm({...form, direction: 'oldim'})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: form.direction === 'oldim' ? 'var(--card)' : 'transparent', color: form.direction === 'oldim' ? '#fff' : 'var(--text-secondary)', fontWeight: form.direction === 'oldim' ? '600' : '500' }}>📥 Oldim</button>
+              <button onClick={() => setForm({...form, direction: 'berdim'})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: form.direction === 'berdim' ? 'var(--card)' : 'transparent', color: form.direction === 'berdim' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: form.direction === 'berdim' ? '600' : '500', cursor: 'pointer' }}>📤 Berdim</button>
+                <button onClick={() => setForm({...form, direction: 'oldim'})} style={{ flex: 1, padding: '10px', borderRadius: '8px', border: 'none', background: form.direction === 'oldim' ? 'var(--card)' : 'transparent', color: form.direction === 'oldim' ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: form.direction === 'oldim' ? '600' : '500', cursor: 'pointer' }}>📥 Oldim</button>
               </div>
             )}
 
             {activeModal === 'qarz' && (
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Shaxs</label>
-                <input type="text" placeholder="Ism kiriting" value={form.person} onChange={e => setForm({...form, person: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }} />
+                <input type="text" placeholder="Ism kiriting" value={form.person} onChange={e => setForm({...form, person: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
               </div>
             )}
 
             <div style={{ marginBottom: '16px' }}>
               <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Summa</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="number" placeholder="0" value={form.amount} onChange={handleAmountChange} style={{ flex: 1, background: 'var(--bg)', border: `1px solid ${amountError ? 'var(--danger)' : 'var(--border)'}`, padding: '14px', borderRadius: '12px', color: '#fff', fontSize: '16px', fontWeight: 'bold' }} />
+                <input type="number" placeholder="0" value={form.amount} onChange={handleAmountChange} style={{ flex: 1, background: 'var(--bg)', border: `1px solid ${amountError ? 'var(--danger)' : 'var(--border)'}`, padding: '14px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '16px', fontWeight: 'bold' }} />
                 {activeModal === 'qarz' ? (
-                  <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} style={{ background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }}>
+                  <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})} style={{ background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }}>
                     <option value="UZS">UZS</option>
                     <option value="USD">USD</option>
                   </select>
@@ -160,14 +160,14 @@ const QuickActions = ({ balances, onSuccess }) => {
               <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Dan (Balans)</label>
-                  <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }}>
+                  <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }}>
                     {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
                   </select>
                 </div>
                 {activeModal === 'transfer' && (
                   <div style={{ flex: 1 }}>
                     <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Ga (Balans)</label>
-                    <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }}>
+                    <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }}>
                       {balances?.map(b => <option key={b.id} value={b.id}>{b.title} ({b.currency})</option>)}
                     </select>
                   </div>
@@ -178,21 +178,21 @@ const QuickActions = ({ balances, onSuccess }) => {
             {(activeModal === 'kirim' || activeModal === 'chiqim') && (
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Kategoriya</label>
-                <input type="text" placeholder="Masalan: Oziq-ovqat" value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }} />
+                <input type="text" placeholder="Masalan: Oziq-ovqat" value={form.category} onChange={e => setForm({...form, category: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
               </div>
             )}
 
             {activeModal === 'qarz' && (
               <div style={{ marginBottom: '16px' }}>
                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Muddat (ixtiyoriy)</label>
-                <input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }} />
+                <input type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
               </div>
             )}
 
             {activeModal !== 'transfer' && (
               <div style={{ marginBottom: '24px' }}>
                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '8px', display: 'block' }}>Izoh (ixtiyoriy)</label>
-                <input type="text" placeholder="Qo'shimcha ma'lumot" value={form.note} onChange={e => setForm({...form, note: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: '#fff' }} />
+                <input type="text" placeholder="Qo'shimcha ma'lumot" value={form.note} onChange={e => setForm({...form, note: e.target.value})} style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '14px', borderRadius: '12px', color: 'var(--text-primary)' }} />
               </div>
             )}
 
