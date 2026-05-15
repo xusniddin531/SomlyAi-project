@@ -207,13 +207,7 @@ async def check_debt_reminders(bot: Bot):
 
         if direction == "bergan":
             # Ular senga qarzdir (Olishim kerak)
-            if delta == 3:
-                msg = (
-                    f"⏰ Eslatma!\n"
-                    f"{person} sizga {format_number(amount)} {currency} qaytarishi "
-                    f"endi 3 kun qoldi (📅 {due_date.strftime('%d.%m.%Y')})"
-                )
-            elif delta == 0:
+            if delta == 0:
                 msg = (
                     f"🔔 Bugun!\n"
                     f"{person} {format_number(amount)} {currency} qaytarishi kerak edi.\n"
@@ -234,13 +228,7 @@ async def check_debt_reminders(bot: Bot):
                 )
         else:
             # Sen ularga qarzsan (Berishim kerak)
-            if delta == 3:
-                msg = (
-                    f"⏰ Eslatma!\n"
-                    f"{person}ga {format_number(amount)} {currency} qaytarishingiz "
-                    f"endi 3 kun qoldi (📅 {due_date.strftime('%d.%m.%Y')})"
-                )
-            elif delta == 0:
+            if delta == 0:
                 msg = (
                     f"🔔 Bugun!\n"
                     f"{person}ga {format_number(amount)} {currency} qaytarishingiz kerak edi.\n"
@@ -544,8 +532,8 @@ def setup_scheduler(bot: Bot):
 
     from src.services.currency_service import fetch_and_cache_cbu_rates
     
-    # AI maxsus eslatmalari (har daqiqada tekshiriladi)
-    scheduler.add_job(check_custom_reminders, trigger="interval", minutes=1, args=[bot], id="custom_reminders", replace_existing=True)
+    # AI maxsus eslatmalari (birlashtirilgan job ichida chaqiriladi)
+    # scheduler.add_job(check_custom_reminders, trigger="interval", minutes=1, args=[bot], id="custom_reminders", replace_existing=True)
 
     # Har 1 soatda valyuta kurslarini CBU dan olish
     scheduler.add_job(fetch_and_cache_cbu_rates, trigger="interval", hours=1, id="update_currency_rates", replace_existing=True)
@@ -565,26 +553,30 @@ def setup_scheduler(bot: Bot):
     # Qarzlar 09:00 da
     scheduler.add_job(check_debt_reminders, trigger="cron", hour=9, minute=0, args=[bot], id="debt_reminders", replace_existing=True)
     
-    # Data Integrity 02:00 da
-    scheduler.add_job(daily_balance_integrity_check, trigger="cron", hour=2, minute=0, args=[bot], id="integrity_check", replace_existing=True)
+    # Data Integrity haftada 1 marta Yakshanba 02:00 da
+    scheduler.add_job(daily_balance_integrity_check, trigger="cron", day_of_week="sun", hour=2, minute=0, args=[bot], id="integrity_check", replace_existing=True)
     
     # Weekly Cleanup Yakshanba 03:00 da
     scheduler.add_job(weekly_cleanup, trigger="cron", day_of_week="sun", hour=3, minute=0, args=[bot], id="weekly_cleanup", replace_existing=True)
     
-    # System Monitoring har 5 minutda
-    scheduler.add_job(monitor_system_health, trigger="interval", minutes=5, args=[bot], id="system_monitoring", replace_existing=True)
+    # System Monitoring har 50 minutda
+    scheduler.add_job(monitor_system_health, trigger="interval", minutes=50, args=[bot], id="system_monitoring", replace_existing=True)
     
-    # Groq Keys Monitoring har 5 minutda
-    scheduler.add_job(check_groq_keys_health, trigger="interval", minutes=5, args=[bot], id="groq_keys_health", replace_existing=True)
+    # Groq Keys Monitoring har 15 minutda
+    scheduler.add_job(check_groq_keys_health, trigger="interval", minutes=15, args=[bot], id="groq_keys_health", replace_existing=True)
     
     # Groq Keys Kunlik Hisobot 08:00 da
     scheduler.add_job(send_daily_api_report, trigger="cron", hour=8, minute=0, args=[bot], id="daily_api_report", replace_existing=True)
     
-    # Har daqiqada eslatmalarni tekshirish
-    scheduler.add_job(check_pending_reminders, trigger="interval", minutes=1, args=[bot], id="check_pending_reminders", replace_existing=True)
+    # Birlashtirilgan eslatmalarni tekshirish (AI va oddiy) har 2 daqiqada
+    async def run_all_reminders(b):
+        await check_custom_reminders(b)
+        await check_pending_reminders(b)
+        
+    scheduler.add_job(run_all_reminders, trigger="interval", minutes=2, args=[bot], id="combined_reminders", replace_existing=True)
     
-    # Segmentatsiya savollarini tekshirish (har 5 daqiqada)
-    scheduler.add_job(check_segmentation_questions, trigger="interval", minutes=5, args=[bot], id="segmentation_questions", replace_existing=True)
+    # Segmentatsiya savollarini tekshirish (har 30 daqiqada)
+    scheduler.add_job(check_segmentation_questions, trigger="interval", minutes=30, args=[bot], id="segmentation_questions", replace_existing=True)
     
     # Har oyning 1-kuni soat 01:00 da daromad tarixini hisoblash
     scheduler.add_job(calculate_monthly_income_levels, trigger="cron", day=1, hour=1, minute=0, args=[bot], id="monthly_income_levels", replace_existing=True)

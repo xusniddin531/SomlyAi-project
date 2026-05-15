@@ -13,7 +13,7 @@ import CategoriesPage from './pages/Categories';
 import DebtsPage from './pages/Debts';
 import AnalyticsPage from './pages/Analytics';
 import ReportsPage from './pages/Reports';
-import GroupPage from './pages/GroupPage';
+
 import RemindersPage from './pages/Reminders';
 import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
@@ -59,7 +59,6 @@ const AppContent = ({ initData, isOffline, wasOffline, isSyncing }) => {
             <Route path="/debts" element={<DebtsPage initData={initData} />} />
             <Route path="/reminders" element={<RemindersPage initData={initData} />} />
             <Route path="/analytics" element={<AnalyticsPage initData={initData} />} />
-            <Route path="/group" element={<GroupPage initData={initData} />} />
             <Route path="/settings" element={<SettingsPage initData={initData} />} />
             <Route path="/notifications" element={<NotificationsPage initData={initData} />} />
             <Route path="/privacy" element={<PrivacyPage />} />

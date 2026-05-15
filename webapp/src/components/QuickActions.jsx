@@ -131,25 +131,25 @@ const QuickActions = ({ balances, onSuccess }) => {
   return (
     <div style={{ marginTop: '24px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
-        <button className="quick-action-btn" onClick={() => setActiveModal('kirim')} style={{ background: 'rgba(48, 209, 88, 0.1)', border: '1px solid rgba(48, 209, 88, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#30D158' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#30D158', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Plus size={20} /></div>
-          <span style={{ fontSize: '11px', fontWeight: '600' }}>Kirim</span>
+        <button className="quick-action-btn" onClick={() => setActiveModal('kirim')} style={{ background: 'var(--card)', border: '1px solid rgba(48, 209, 88, 0.3)', padding: '12px 4px', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#32D74B', boxShadow: '0 4px 12px rgba(48, 209, 88, 0.1)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '20px', background: 'var(--gradient-success)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(48, 209, 88, 0.3)' }}><Plus size={22} /></div>
+          <span style={{ fontSize: '11px', fontWeight: '700' }}>Kirim</span>
         </button>
-        <button className="quick-action-btn" onClick={() => setActiveModal('chiqim')} style={{ background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF453A' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#FF453A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Minus size={20} /></div>
-          <span style={{ fontSize: '11px', fontWeight: '600' }}>Chiqim</span>
+        <button className="quick-action-btn" onClick={() => setActiveModal('chiqim')} style={{ background: 'var(--card)', border: '1px solid rgba(255, 69, 58, 0.3)', padding: '12px 4px', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF453A', boxShadow: '0 4px 12px rgba(255, 69, 58, 0.1)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '20px', background: 'var(--gradient-danger)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(255, 69, 58, 0.3)' }}><Minus size={22} /></div>
+          <span style={{ fontSize: '11px', fontWeight: '700' }}>Chiqim</span>
         </button>
-        <button className="quick-action-btn" onClick={() => setActiveModal('qarz')} style={{ background: 'rgba(255, 159, 10, 0.1)', border: '1px solid rgba(255, 159, 10, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF9F0A' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#FF9F0A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Handshake size={20} /></div>
-          <span style={{ fontSize: '11px', fontWeight: '600' }}>Qarz</span>
+        <button className="quick-action-btn" onClick={() => setActiveModal('qarz')} style={{ background: 'var(--card)', border: '1px solid rgba(255, 159, 10, 0.3)', padding: '12px 4px', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF9F0A', boxShadow: '0 4px 12px rgba(255, 159, 10, 0.1)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '20px', background: 'var(--gradient-orange)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(255, 159, 10, 0.3)' }}><Handshake size={20} /></div>
+          <span style={{ fontSize: '11px', fontWeight: '700' }}>Qarz</span>
         </button>
-        <button className="quick-action-btn" onClick={() => setActiveModal('transfer')} style={{ background: 'rgba(10, 132, 255, 0.1)', border: '1px solid rgba(10, 132, 255, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#0A84FF' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#0A84FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ArrowRightLeft size={20} /></div>
-          <span style={{ fontSize: '11px', fontWeight: '600' }}>O'tkazma</span>
+        <button className="quick-action-btn" onClick={() => setActiveModal('transfer')} style={{ background: 'var(--card)', border: '1px solid rgba(10, 132, 255, 0.3)', padding: '12px 4px', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#0A84FF', boxShadow: '0 4px 12px rgba(10, 132, 255, 0.1)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '20px', background: 'var(--gradient-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(10, 132, 255, 0.3)' }}><ArrowRightLeft size={20} /></div>
+          <span style={{ fontSize: '11px', fontWeight: '700' }}>O'tkazma</span>
         </button>
-        <button className="quick-action-btn" onClick={() => setShowQrScanner(true)} style={{ background: 'rgba(175, 82, 222, 0.1)', border: '1px solid rgba(175, 82, 222, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#AF52DE' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#AF52DE', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ScanLine size={20} /></div>
-          <span style={{ fontSize: '11px', fontWeight: '600' }}>Chek</span>
+        <button className="quick-action-btn" onClick={() => setShowQrScanner(true)} style={{ background: 'var(--card)', border: '1px solid rgba(191, 90, 242, 0.3)', padding: '12px 4px', borderRadius: 'var(--radius-lg)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#BF5AF2', boxShadow: '0 4px 12px rgba(191, 90, 242, 0.1)' }}>
+          <div style={{ width: '40px', height: '40px', borderRadius: '20px', background: 'var(--gradient-purple)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(191, 90, 242, 0.3)' }}><ScanLine size={20} /></div>
+          <span style={{ fontSize: '11px', fontWeight: '700' }}>Chek</span>
         </button>
       </div>
 
