@@ -104,7 +104,6 @@ const QuickActions = ({ balances, onSuccess }) => {
     color: 'var(--text-primary)',
     fontSize: '16px',
     boxSizing: 'border-box',
-    outline: 'none',
   };
 
   const selectStyle = {
@@ -132,23 +131,23 @@ const QuickActions = ({ balances, onSuccess }) => {
   return (
     <div style={{ marginTop: '24px' }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '10px' }}>
-        <button onClick={() => setActiveModal('kirim')} style={{ background: 'rgba(48, 209, 88, 0.1)', border: '1px solid rgba(48, 209, 88, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#30D158' }}>
+        <button className="quick-action-btn" onClick={() => setActiveModal('kirim')} style={{ background: 'rgba(48, 209, 88, 0.1)', border: '1px solid rgba(48, 209, 88, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#30D158' }}>
           <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#30D158', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Plus size={20} /></div>
           <span style={{ fontSize: '11px', fontWeight: '600' }}>Kirim</span>
         </button>
-        <button onClick={() => setActiveModal('chiqim')} style={{ background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF453A' }}>
+        <button className="quick-action-btn" onClick={() => setActiveModal('chiqim')} style={{ background: 'rgba(255, 69, 58, 0.1)', border: '1px solid rgba(255, 69, 58, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF453A' }}>
           <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#FF453A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Minus size={20} /></div>
           <span style={{ fontSize: '11px', fontWeight: '600' }}>Chiqim</span>
         </button>
-        <button onClick={() => setActiveModal('qarz')} style={{ background: 'rgba(255, 159, 10, 0.1)', border: '1px solid rgba(255, 159, 10, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF9F0A' }}>
+        <button className="quick-action-btn" onClick={() => setActiveModal('qarz')} style={{ background: 'rgba(255, 159, 10, 0.1)', border: '1px solid rgba(255, 159, 10, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#FF9F0A' }}>
           <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#FF9F0A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Handshake size={20} /></div>
           <span style={{ fontSize: '11px', fontWeight: '600' }}>Qarz</span>
         </button>
-        <button onClick={() => setActiveModal('transfer')} style={{ background: 'rgba(10, 132, 255, 0.1)', border: '1px solid rgba(10, 132, 255, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#0A84FF' }}>
+        <button className="quick-action-btn" onClick={() => setActiveModal('transfer')} style={{ background: 'rgba(10, 132, 255, 0.1)', border: '1px solid rgba(10, 132, 255, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#0A84FF' }}>
           <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#0A84FF', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ArrowRightLeft size={20} /></div>
           <span style={{ fontSize: '11px', fontWeight: '600' }}>O'tkazma</span>
         </button>
-        <button onClick={() => setShowQrScanner(true)} style={{ background: 'rgba(175, 82, 222, 0.1)', border: '1px solid rgba(175, 82, 222, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#AF52DE' }}>
+        <button className="quick-action-btn" onClick={() => setShowQrScanner(true)} style={{ background: 'rgba(175, 82, 222, 0.1)', border: '1px solid rgba(175, 82, 222, 0.2)', padding: '12px 4px', borderRadius: '16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', cursor: 'pointer', color: '#AF52DE' }}>
           <div style={{ width: '36px', height: '36px', borderRadius: '18px', background: '#AF52DE', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ScanLine size={20} /></div>
           <span style={{ fontSize: '11px', fontWeight: '600' }}>Chek</span>
         </button>
@@ -210,21 +209,19 @@ const QuickActions = ({ balances, onSuccess }) => {
             {/* ═══ Qarz direction toggle ═══ */}
             {activeModal === 'qarz' && (
               <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', background: 'var(--bg)', padding: '4px', borderRadius: '12px' }}>
-                <button onClick={() => setForm({...form, direction: 'berdim'})} style={{
+                <button className="quick-action-btn" onClick={() => setForm({...form, direction: 'berdim'})} style={{
                   flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
                   background: form.direction === 'berdim' ? 'var(--card-solid)' : 'transparent',
                   color: form.direction === 'berdim' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   fontWeight: form.direction === 'berdim' ? '600' : '500',
                   boxShadow: form.direction === 'berdim' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  transition: 'all 0.2s ease',
                 }}>📤 Berdim</button>
-                <button onClick={() => setForm({...form, direction: 'oldim'})} style={{
+                <button className="quick-action-btn" onClick={() => setForm({...form, direction: 'oldim'})} style={{
                   flex: 1, padding: '10px', borderRadius: '8px', border: 'none', cursor: 'pointer',
                   background: form.direction === 'oldim' ? 'var(--card-solid)' : 'transparent',
                   color: form.direction === 'oldim' ? 'var(--text-primary)' : 'var(--text-secondary)',
                   fontWeight: form.direction === 'oldim' ? '600' : '500',
                   boxShadow: form.direction === 'oldim' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
-                  transition: 'all 0.2s ease',
                 }}>📥 Oldim</button>
               </div>
             )}
@@ -234,6 +231,7 @@ const QuickActions = ({ balances, onSuccess }) => {
               <div style={fieldGroup}>
                 <label style={labelStyle}>Shaxs</label>
                 <input type="text" placeholder="Ism kiriting" value={form.person}
+                  className="apple-input"
                   onChange={e => setForm({...form, person: e.target.value})}
                   style={inputStyle}
                 />
@@ -245,6 +243,7 @@ const QuickActions = ({ balances, onSuccess }) => {
               <label style={labelStyle}>Summa</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 <input type="number" placeholder="0" value={form.amount}
+                  className="apple-input"
                   onChange={handleAmountChange}
                   style={{
                     ...inputStyle,
@@ -255,6 +254,7 @@ const QuickActions = ({ balances, onSuccess }) => {
                 />
                 {activeModal === 'qarz' && (
                   <select value={form.currency} onChange={e => setForm({...form, currency: e.target.value})}
+                    className="apple-input"
                     style={{ ...selectStyle, flex: '0 0 90px', width: '90px' }}>
                     <option value="UZS">UZS</option>
                     <option value="USD">USD</option>
@@ -271,6 +271,7 @@ const QuickActions = ({ balances, onSuccess }) => {
                   <div style={{ flex: 1 }}>
                     <label style={labelStyle}>{activeModal === 'transfer' ? 'Dan (Balans)' : 'Balans'}</label>
                     <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})}
+                      className="apple-input"
                       style={selectStyle}>
                       {balances?.map(b => <option key={b.currency} value={b.currency}>{b.title} ({b.currency})</option>)}
                     </select>
@@ -279,6 +280,7 @@ const QuickActions = ({ balances, onSuccess }) => {
                     <div style={{ flex: 1 }}>
                       <label style={labelStyle}>Ga (Balans)</label>
                       <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})}
+                        className="apple-input"
                         style={selectStyle}>
                         {balances?.map(b => <option key={b.currency} value={b.currency}>{b.title} ({b.currency})</option>)}
                       </select>
@@ -293,6 +295,7 @@ const QuickActions = ({ balances, onSuccess }) => {
               <div style={fieldGroup}>
                 <label style={labelStyle}>Kategoriya</label>
                 <input type="text" placeholder="Masalan: Oziq-ovqat" value={form.category}
+                  className="apple-input"
                   onChange={e => setForm({...form, category: e.target.value})}
                   style={inputStyle}
                 />
@@ -304,6 +307,7 @@ const QuickActions = ({ balances, onSuccess }) => {
               <div style={fieldGroup}>
                 <label style={labelStyle}>Muddat (ixtiyoriy)</label>
                 <input type="date" value={form.dueDate}
+                  className="apple-input"
                   onChange={e => setForm({...form, dueDate: e.target.value})}
                   style={inputStyle}
                 />
@@ -315,6 +319,7 @@ const QuickActions = ({ balances, onSuccess }) => {
               <div style={{ marginBottom: '24px' }}>
                 <label style={labelStyle}>Izoh (ixtiyoriy)</label>
                 <input type="text" placeholder="Qo'shimcha ma'lumot" value={form.note}
+                  className="apple-input"
                   onChange={e => setForm({...form, note: e.target.value})}
                   style={inputStyle}
                 />
@@ -322,16 +327,7 @@ const QuickActions = ({ balances, onSuccess }) => {
             )}
 
             {/* ═══ Submit ═══ */}
-            <button onClick={handleSubmit} disabled={loading || !form.amount || !!amountError}
-              style={{
-                width: '100%', padding: '16px',
-                background: 'var(--primary)', color: '#fff',
-                border: 'none', borderRadius: '16px',
-                fontSize: '16px', fontWeight: 'bold', cursor: 'pointer',
-                opacity: (loading || !form.amount || !!amountError) ? 0.5 : 1,
-                boxSizing: 'border-box',
-                transition: 'opacity 0.2s ease',
-              }}>
+            <button className="apple-submit-btn" onClick={handleSubmit} disabled={loading || !form.amount || !!amountError}>
               {loading ? 'Saqlanmoqda...' : 'Saqlash'}
             </button>
           </div>

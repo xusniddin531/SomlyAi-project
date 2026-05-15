@@ -63,20 +63,76 @@ html {
 }
 
 button, .clickable, .card {
-  transition: transform 0.4s cubic-bezier(0.25, 0.1, 0.25, 1), box-shadow 0.4s cubic-bezier(0.25, 0.1, 0.25, 1), background-color 0.3s ease, border-color 0.3s ease;
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.3s ease, border-color 0.3s ease, filter 0.3s ease;
 }
 
 button:active, .clickable:active {
-  transform: scale(0.96) !important;
+  transform: scale(0.95) !important;
+  transition: transform 0.1s ease-out !important;
 }
 
 button:hover, .clickable:hover {
-  filter: brightness(1.05);
+  filter: brightness(1.08);
 }
 
 .card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15), 0 0 0 1px var(--border);
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px var(--border);
+}
+
+/* Premium Apple-style Input */
+.apple-input {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.apple-input:focus {
+  outline: none;
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 4px var(--primary-glow);
+  transform: translateY(-1px);
+}
+
+/* Apple-style Quick Action Buttons */
+.quick-action-btn {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.quick-action-btn:hover {
+  transform: translateY(-3px) scale(1.02);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  filter: brightness(1.1);
+}
+.quick-action-btn:active {
+  transform: translateY(0) scale(0.92) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Premium Apple Submit Button */
+.apple-submit-btn {
+  width: 100%;
+  padding: 16px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: 16px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 4px 12px var(--primary-glow);
+}
+.apple-submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px var(--primary-glow);
+  filter: brightness(1.1);
+}
+.apple-submit-btn:active:not(:disabled) {
+  transform: scale(0.96) !important;
+  box-shadow: 0 2px 8px var(--primary-glow);
+}
+.apple-submit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 body {
