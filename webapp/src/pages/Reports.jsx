@@ -144,7 +144,7 @@ const ReportsPage = ({ initData }) => {
     if (!selectedTx) return;
     try {
       const updates = {};
-      if (editForm.amount) updates.amount = parseInt(editForm.amount);
+      if (editForm.amount) updates.amount = parseInt(editForm.amount.toString().replace(/\s+/g, ''));
       if (editForm.category) updates.category = editForm.category;
       if (editForm.desc) updates.desc = editForm.desc;
 
@@ -383,7 +383,11 @@ const ReportsPage = ({ initData }) => {
                   tx={tx}
                   onTap={() => {
                     setSelectedTx(tx);
-                    setEditForm({ amount: '', category: '', desc: '' });
+                    setEditForm({ 
+                      amount: tx.amount ? tx.amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") : '', 
+                      category: '', 
+                      desc: '' 
+                    });
                     setActiveModal('edit');
                   }}
                   onSwipe={(dir) => handleSwipe(tx.id, dir)}
@@ -1135,9 +1139,21 @@ const EditModal = ({ tx, form, setForm, onClose, onSave }) => {
                 Summa
               </label>
               <input
-                type="number"
-                value={form.amount || tx.amount}
-                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+                type="tel"
+                value={form.amount}
+                onChange={(e) => {
+                  let rawVal = e.target.value.replace(/\s+/g, '');
+                  if (rawVal === '') {
+                    setForm({ ...form, amount: '' });
+                    return;
+                  }
+                  if (!/^\d*$/.test(rawVal)) return;
+                  if (rawVal.length > 1 && rawVal.startsWith('0')) {
+                    rawVal = rawVal.replace(/^0+/, '');
+                  }
+                  const formattedVal = rawVal.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+                  setForm({ ...form, amount: formattedVal });
+                }}
                 style={{
                   width: '100%',
                   background: 'var(--bg)',

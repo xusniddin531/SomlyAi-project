@@ -321,7 +321,11 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
 
     # ─── 1.5. Handle error intent from AI ───
     if intent == "error":
-        error_key = data.get("error_key", "err_general")
+        error_key = data.get("error_key")
+        # LLM o'zi 'error' qaytarib error_key bermagan bo'lsa (hallucination), unclear ga o'tkazamiz
+        if not error_key or error_key == "err_general":
+            error_key = "err_unclear_input"
+            
         error_msg = t(language, error_key)
         
         if error_key == "err_unclear_input":

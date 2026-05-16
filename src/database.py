@@ -2066,8 +2066,12 @@ async def get_report_context(telegram_id: int, currency: str = "UZS"):
         
     for d in debts:
         d["_id"] = str(d["_id"])
-        if "created_at" in d:
+        if "created_at" in d and d["created_at"]:
             d["created_at"] = d["created_at"].isoformat()
+        if "due_date" in d and d["due_date"]:
+            d["due_date"] = d["due_date"].isoformat()
+        if "updated_at" in d and d["updated_at"]:
+            d["updated_at"] = d["updated_at"].isoformat()
             
     return {
         "balances": balances,
