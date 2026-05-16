@@ -5,6 +5,21 @@ import { useTranslation } from 'react-i18next';
 import { fetchApi, getExchangeRates } from '../utils/api';
 import PageHeader from '../components/PageHeader';
 
+
+const formatAmountInput = (val) => {
+  let rawVal = String(val).replace(/\s+/g, '');
+  if (!/^\d*$/.test(rawVal)) return '';
+  if (rawVal.length > 1 && rawVal.startsWith('0')) {
+    rawVal = rawVal.replace(/^0+/, '');
+  }
+  return rawVal.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+};
+
+const parseAmountInput = (val) => {
+  if (!val) return 0;
+  return parseFloat(String(val).replace(/\s+/g, '')) || 0;
+};
+
 const BalancesPage = ({ initData }) => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
@@ -135,9 +150,9 @@ const BalancesPage = ({ initData }) => {
       currency: addForm.currency,
       title: addForm.title,
       emoji: addForm.emoji,
-      amount: addForm.amount,
+      amount: parseAmountInput(addForm.amount),
       color: addForm.color,
-      limit: addForm.hasLimit ? addForm.limitAmount : null
+      limit: addForm.hasLimit ? parseAmountInput(addForm.limitAmount) : null
     };
 
     try {
@@ -699,10 +714,10 @@ const BalancesPage = ({ initData }) => {
                 gap: '8px'
               }}>
                 <input
-                  type="number"
+                  type="tel"
                   placeholder="0"
                   value={addForm.amount}
-                  onChange={(e) => setAddForm({...addForm, amount: e.target.value})}
+                  onChange={(e) => setAddForm({...addForm, amount: formatAmountInput(e.target.value)})}
                   style={{
                     flex: 1,
                     background: 'var(--bg)',
@@ -925,10 +940,10 @@ const BalancesPage = ({ initData }) => {
                 marginBottom: '16px'
               }}>
                 <input
-                  type="number"
+                  type="tel"
                   placeholder="Limit miqdori"
                   value={addForm.limitAmount}
-                  onChange={(e) => setAddForm({...addForm, limitAmount: e.target.value})}
+                  onChange={(e) => setAddForm({...addForm, limitAmount: formatAmountInput(e.target.value)})}
                   style={{
                     flex: 1,
                     background: 'var(--bg)',
@@ -1106,11 +1121,11 @@ const BalancesPage = ({ initData }) => {
             {useLimit && (
               <div style={{ marginBottom: '24px', animation: 'slideDown 0.3s ease' }}>
                 <input 
-                  type="number" 
+                  type="tel" 
                   placeholder="Limit miqdorini kiriting"
                   className="input-field"
                   value={limitAmount}
-                  onChange={e => setLimitAmount(e.target.value)}
+                  onChange={e => setLimitAmount(formatAmountInput(e.target.value))}
                   style={{ fontSize: '16px' }}
                 />
               </div>
@@ -1299,7 +1314,7 @@ const BalancesPage = ({ initData }) => {
                 gap: '8px'
               }}>
                 <input
-                  type="number"
+                  type="tel"
                   disabled
                   value={addForm.amount}
                   style={{
@@ -1417,10 +1432,10 @@ const BalancesPage = ({ initData }) => {
               {addForm.hasLimit && (
                 <div style={{ marginTop: '12px' }}>
                   <input
-                    type="number"
+                    type="tel"
                     placeholder="Limit miqdorini kiriting"
                     value={addForm.limitAmount}
-                    onChange={(e) => setAddForm({...addForm, limitAmount: e.target.value})}
+                    onChange={(e) => setAddForm({...addForm, limitAmount: formatAmountInput(e.target.value)})}
                     style={{
                       width: '100%',
                       background: 'var(--bg)',
@@ -1616,9 +1631,9 @@ const BalancesPage = ({ initData }) => {
                   Summa
                 </label>
                 <input
-                  type="number"
+                  type="tel"
                   value={transferForm.amount}
-                  onChange={(e) => setTransferForm({ ...transferForm, amount: e.target.value })}
+                  onChange={(e) => setTransferForm({ ...transferForm, amount: formatAmountInput(e.target.value) })}
                   placeholder="0"
                   style={{
                     width: '100%',
@@ -1765,10 +1780,10 @@ const BalancesPage = ({ initData }) => {
                 <label style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', display: 'block', marginBottom: '8px' }}>Boshlang'ich summa</label>
                 <input 
                   className="apple-input"
-                  type="number" 
+                  type="tel" 
                   placeholder="0" 
                   value={addForm.amount} 
-                  onChange={(e) => setAddForm({...addForm, amount: e.target.value})}
+                  onChange={(e) => setAddForm({...addForm, amount: formatAmountInput(e.target.value)})}
                   style={{ width: '100%', background: 'var(--bg)', border: '1px solid var(--border)', padding: '12px 16px', borderRadius: '12px', color: 'var(--text-primary)', fontSize: '15px', boxSizing: 'border-box', outline: 'none' }}
                 />
               </div>
@@ -1828,7 +1843,7 @@ const BalancesPage = ({ initData }) => {
                     method: 'POST', 
                     body: JSON.stringify({ 
                       name: addForm.title, 
-                      amount: addForm.amount, 
+                      amount: parseAmountInput(addForm.amount), 
                       currency: addForm.currency, 
                       color: '#8B5CF6',
                       user_id: window.Telegram?.WebApp?.initDataUnsafe?.user?.id

@@ -16,15 +16,23 @@ const TransactionModal = ({ isOpen, onClose }) => {
   }, [isOpen]);
 
   const handleAmountChange = (e) => {
-    const val = e.target.value;
-    setAmount(val);
-    
-    if (val === '') {
+    let rawVal = e.target.value.replace(/\s+/g, '');
+    if (rawVal === '') {
+      setAmount('');
       setAmountError('');
       return;
     }
     
-    const num = parseFloat(val);
+    if (!/^\d*$/.test(rawVal)) return;
+    
+    if (rawVal.length > 1 && rawVal.startsWith('0')) {
+      rawVal = rawVal.replace(/^0+/, '');
+    }
+
+    const formattedVal = rawVal.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    setAmount(formattedVal);
+    
+    const num = parseFloat(rawVal);
     if (num < 0) {
       setAmountError("Manfiy son bo'lishi mumkin emas");
     } else if (num === 0) {
@@ -40,7 +48,7 @@ const TransactionModal = ({ isOpen, onClose }) => {
       return;
     }
     
-    const num = parseFloat(amount);
+    const num = parseFloat(amount.replace(/\s+/g, ''));
     if (num <= 0) return;
     
     const finalCategory = category.trim() === '' ? 'Boshqa xarajatlar' : category;
@@ -63,7 +71,7 @@ const TransactionModal = ({ isOpen, onClose }) => {
         <div>
           <label className="subtitle" style={{ fontSize: '14px' }}>Summa</label>
           <input 
-            type="number" 
+            type="tel" 
             className="input-field" 
             placeholder="0" 
             value={amount}

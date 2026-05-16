@@ -23,13 +23,22 @@ const QuickActions = ({ balances, onSuccess }) => {
   }, [activeModal, balances]);
 
   const handleAmountChange = (e) => {
-    const val = e.target.value;
-    setForm({ ...form, amount: val });
-    if (val === '') {
+    let rawVal = e.target.value.replace(/\s+/g, '');
+    if (rawVal === '') {
+      setForm({ ...form, amount: '' });
       setAmountError('');
       return;
     }
-    const num = parseFloat(val);
+    if (!/^\d*$/.test(rawVal)) return;
+    
+    if (rawVal.length > 1 && rawVal.startsWith('0')) {
+      rawVal = rawVal.replace(/^0+/, '');
+    }
+
+    const formattedVal = rawVal.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+    setForm({ ...form, amount: formattedVal });
+
+    const num = parseFloat(rawVal);
     if (num < 0) setAmountError("Manfiy son mumkin emas");
     else if (num === 0) setAmountError("0 dan katta bo'lishi kerak");
     else setAmountError('');
@@ -41,7 +50,8 @@ const QuickActions = ({ balances, onSuccess }) => {
     if (!form.amount || amountError) return;
     setLoading(true);
     try {
-      let payload = { user_id: getUserId(), amount: parseFloat(form.amount), description: form.note || '' };
+      const rawAmount = parseFloat(form.amount.replace(/\s+/g, ''));
+      let payload = { user_id: getUserId(), amount: rawAmount, description: form.note || '' };
       let endpoint = '';
       
       const bal = balances.find(b => b.currency === form.balanceId);
@@ -61,7 +71,7 @@ const QuickActions = ({ balances, onSuccess }) => {
         payload = {
             user_id: getUserId(),
             direction: form.direction,
-            amount: parseFloat(form.amount),
+            amount: rawAmount,
             currency: form.currency,
             person: form.person,
             due_date: form.dueDate || null,
@@ -79,7 +89,7 @@ const QuickActions = ({ balances, onSuccess }) => {
             user_id: getUserId(),
             from_balance_id: form.balanceId,
             to_balance_id: form.toBalanceId,
-            amount: parseFloat(form.amount)
+            amount: rawAmount
         };
       }
 
@@ -242,7 +252,7 @@ const QuickActions = ({ balances, onSuccess }) => {
             <div style={fieldGroup}>
               <label style={labelStyle}>Summa</label>
               <div style={{ display: 'flex', gap: '8px' }}>
-                <input type="number" placeholder="0" value={form.amount}
+                <input type="tel" placeholder="0" value={form.amount}
                   className="apple-input"
                   onChange={handleAmountChange}
                   style={{
