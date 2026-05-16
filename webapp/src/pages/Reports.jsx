@@ -908,14 +908,31 @@ const EditModal = ({ tx, form, setForm, onClose, onSave }) => {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
-    const date = new Date(dateStr);
-    return date.toLocaleString('uz-UZ', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return '';
+      return date.toLocaleString('uz-UZ', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (e) {
+      return '';
+    }
+  };
+
+  const getSafeDatetimeLocal = (dateStr) => {
+    try {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '';
+      const local = new Date(d.getTime() - (d.getTimezoneOffset() * 60000));
+      return local.toISOString().slice(0, 16);
+    } catch (e) {
+      return '';
+    }
   };
 
   return (
@@ -1273,7 +1290,7 @@ const EditModal = ({ tx, form, setForm, onClose, onSave }) => {
             <div style={{ display: 'flex', gap: '8px' }}>
               <input
                 type="datetime-local"
-                value={form.datetime || new Date(tx.created_at).toISOString().slice(0, 16)}
+                value={form.datetime || getSafeDatetimeLocal(tx.created_at)}
                 onChange={(e) => setForm({ ...form, datetime: e.target.value })}
                 style={{
                   flex: 1,
