@@ -5,19 +5,9 @@ from src.services.i18n import t
 
 router = Router()
 
-async def get_main_keyboard(lang: str = "uz") -> ReplyKeyboardMarkup:
-    url = await get_webapp_url()
-    keyboard = ReplyKeyboardMarkup(
-        keyboard=[
-            [
-                KeyboardButton(text=t(lang, "main_menu_account"), web_app=WebAppInfo(url=url)),
-                KeyboardButton(text=t(lang, "main_menu_add"))
-            ]
-        ],
-        resize_keyboard=True,
-        persistent=True
-    )
-    return keyboard
+async def get_main_keyboard(lang: str = "uz"):
+    from aiogram.types import ReplyKeyboardRemove
+    return ReplyKeyboardRemove()
 
 def get_add_buttons():
     return [t("uz", "main_menu_add"), t("ru", "main_menu_add"), t("en", "main_menu_add")]
