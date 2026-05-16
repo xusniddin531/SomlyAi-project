@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, X, Edit2, Trash2, Check, RefreshCw, Info } from 'lucide-react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, Legend, Cell } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { fetchApi, showToast } from '../utils/api';
 import { EmptyState, ErrorState, SkeletonPage } from '../components/StateViews';
@@ -81,20 +81,37 @@ const ReportsPage = ({ initData }) => {
     txs.forEach(tx => {
       const date = new Date(tx.created_at);
       const day = date.getDate();
-      if (!dayMap[day]) dayMap[day] = 0;
-      if (tx.type === 'kirim') dayMap[day] += tx.amount;
-      else if (tx.type === 'chiqim') dayMap[day] -= tx.amount;
+      const month = date.toLocaleString('uz-UZ', { month: 'short' });
+      const key = `${day} ${month}`;
+      
+      if (!dayMap[key]) dayMap[key] = { name: key, dateObj: date, kirim: 0, chiqim: 0 };
+      
+      let amountInMln = tx.amount / 1000000;
+      // Protect chart from breaking due to absurdly large numbers
+      if (amountInMln > 999999) amountInMln = 999999;
+      
+      if (tx.type === 'kirim') dayMap[key].kirim += amountInMln;
+      else if (tx.type === 'chiqim') dayMap[key].chiqim += amountInMln;
     });
 
-    const sorted = Object.entries(dayMap)
-      .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
-      .slice(-14)
-      .map(([day, value]) => ({
-        name: day,
-        value: Math.round(value / 1000000) // Simplified in millions
+    const sorted = Object.values(dayMap)
+      .sort((a, b) => a.dateObj - b.dateObj)
+      .map(item => ({
+        name: item.name,
+        Kirim: Number(item.kirim.toFixed(1)),
+        Chiqim: Number(item.chiqim.toFixed(1))
       }));
 
-    setChartData(sorted);
+    // If there is only one data point, adding a dummy point helps the chart render it centered
+    if (sorted.length === 1) {
+      setChartData([
+        { name: '', Kirim: 0, Chiqim: 0 },
+        sorted[0],
+        { name: ' ', Kirim: 0, Chiqim: 0 }
+      ]);
+    } else {
+      setChartData(sorted);
+    }
   };
 
   const groupTransactionsByDate = (txs) => {
@@ -268,45 +285,40 @@ const ReportsPage = ({ initData }) => {
             fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)',
             marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
           }}>
-            📈 Dinamika <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>(Mln so'm)</span>
+            📊 Xarajat va Daromad statistikasi
           </h3>
-          <div style={{ height: '220px', marginLeft: '-15px' }}>
+          <div style={{ height: '240px', marginLeft: '-15px' }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+              <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} barGap={4} barSize={14}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
                 <XAxis dataKey="name" stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => v} />
+                <YAxis 
+                  stroke="var(--text-secondary)" 
+                  fontSize={11} 
+                  tickLine={false} 
+                  axisLine={false} 
+                  tickFormatter={(v) => {
+                    if (v >= 1000) return `${(v/1000).toFixed(1)}B`;
+                    return v;
+                  }} 
+                />
                 <Tooltip
                   contentStyle={{
-                    background: 'rgba(28, 28, 30, 0.8)',
+                    background: 'rgba(28, 28, 30, 0.85)',
                     backdropFilter: 'blur(20px)',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: '12px',
                     color: '#fff',
                     boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
                   }}
-                  itemStyle={{ color: 'var(--primary)', fontWeight: 'bold' }}
-                  formatter={(value) => [`${value} mln`, "Farq"]}
-                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px' }}
-                  labelFormatter={(label) => `${label}-sana`}
+                  itemStyle={{ fontWeight: '600' }}
+                  cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                  formatter={(value) => [`${value} mln`, undefined]}
                 />
-                <Area
-                  type="natural"
-                  dataKey="value"
-                  stroke="var(--primary)"
-                  strokeWidth={3}
-                  fillOpacity={1}
-                  fill="url(#colorValue)"
-                  activeDot={{ r: 6, fill: "var(--primary)", stroke: "#fff", strokeWidth: 2 }}
-                  isAnimationActive={true}
-                />
-              </AreaChart>
+                <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '15px' }} />
+                <Bar dataKey="Kirim" fill="var(--success)" radius={[4, 4, 4, 4]} />
+                <Bar dataKey="Chiqim" fill="var(--danger)" radius={[4, 4, 4, 4]} />
+              </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
