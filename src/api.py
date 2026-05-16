@@ -251,15 +251,24 @@ async def get_dashboard(request):
         "date": {"$gte": prev_sd, "$lte": prev_ed}
     }).to_list(length=1000)
     
-    recent_txs = sorted(curr_txs, key=lambda x: x.get("created_at", ""), reverse=True)[:5]
-    formatted_txs = [{
-        "id": str(tx["_id"]),
-        "type": tx["type"],
-        "amount": tx["amount"],
-        "category": tx.get("category", "Boshqa"),
-        "date": tx.get("date", ""),
-        "desc": tx.get("description", "")
-    } for tx in recent_txs]
+    return_all = request.query.get('all_txs', 'false').lower() == 'true'
+    sorted_txs = sorted(curr_txs, key=lambda x: x.get("created_at", ""), reverse=True)
+    txs_to_format = sorted_txs if return_all else sorted_txs[:5]
+    
+    formatted_txs = []
+    for tx in txs_to_format:
+        cat = tx.get("created_at", datetime.now())
+        created_str = cat.isoformat() if isinstance(cat, datetime) else str(cat)
+        formatted_txs.append({
+            "id": str(tx["_id"]),
+            "type": tx["type"],
+            "amount": tx["amount"],
+            "category": tx.get("category", "Boshqa"),
+            "date": tx.get("date", ""),
+            "desc": tx.get("description", ""),
+            "created_at": created_str,
+            "balance_name": tx.get("balance_id", "")
+        })
 
     # Aggregations
     stats = {}

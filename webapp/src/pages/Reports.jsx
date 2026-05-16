@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { ChevronDown, X, Edit2, Trash2, Check, RefreshCw, Info } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip } from 'recharts';
 import { useTranslation } from 'react-i18next';
 import { fetchApi, showToast } from '../utils/api';
 import { EmptyState, ErrorState, SkeletonPage } from '../components/StateViews';
@@ -41,10 +41,31 @@ const ReportsPage = ({ initData }) => {
   const loadTransactions = async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     try {
-      const response = await fetchApi('/dashboard');
+      let url = '/dashboard?all_txs=true';
+      if (filters.dateStart && filters.dateEnd) {
+        const sd = new Date(filters.dateStart).toISOString().split('T')[0];
+        const ed = new Date(filters.dateEnd).toISOString().split('T')[0];
+        url += `&start=${sd}&end=${ed}`;
+      }
+      const response = await fetchApi(url);
       if (response && response.transactions) {
-        setTransactions(response.transactions);
-        buildChartData(response.transactions);
+        let filteredTxs = response.transactions;
+        if (filters.type !== 'all') {
+          filteredTxs = filteredTxs.filter(t => t.type === filters.type);
+        }
+        if (filters.category !== 'all') {
+          filteredTxs = filteredTxs.filter(t => t.category === filters.category);
+        }
+        // Balance filter
+        if (filters.balances && filters.balances.length > 0) {
+          filteredTxs = filteredTxs.filter(t => {
+            const cur = (t.balance_name || '').toLowerCase();
+            return filters.balances.includes(cur);
+          });
+        }
+        
+        setTransactions(filteredTxs);
+        buildChartData(filteredTxs);
         setError(false);
       }
     } catch (err) {
@@ -156,12 +177,16 @@ const ReportsPage = ({ initData }) => {
 
   useEffect(() => {
     loadTransactions();
+  }, [filters]); // reload on filter change
+
+  useEffect(() => {
     const events = ['ws_transaction.updated', 'ws_transaction.deleted', 'ws_transaction.created'];
-    events.forEach(e => window.addEventListener(e, () => loadTransactions(true)));
+    const handler = () => loadTransactions(true);
+    events.forEach(e => window.addEventListener(e, handler));
     return () => {
-      events.forEach(e => window.removeEventListener(e, () => loadTransactions(true)));
+      events.forEach(e => window.removeEventListener(e, handler));
     };
-  }, []);
+  }, [filters]);
 
   // Group transactions
   const groupedTxs = groupTransactionsByDate(transactions);
@@ -238,29 +263,52 @@ const ReportsPage = ({ initData }) => {
 
       {/* Chart */}
       {chartData.length > 0 && (
-        <div style={{ padding: '16px', background: 'var(--bg)', height: '200px' }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="name" stroke="var(--text-secondary)" fontSize={12} />
-              <YAxis stroke="var(--text-secondary)" fontSize={12} />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--card)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px'
-                }}
-              />
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke="var(--primary)"
-                dot={false}
-                strokeWidth={2}
-                isAnimationActive={true}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div style={{ padding: '24px 16px', background: 'var(--bg)' }}>
+          <h3 style={{
+            fontSize: '16px', fontWeight: 600, color: 'var(--text-primary)',
+            marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px'
+          }}>
+            📈 Dinamika <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>(Mln so'm)</span>
+          </h3>
+          <div style={{ height: '220px', marginLeft: '-15px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                <XAxis dataKey="name" stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} />
+                <YAxis stroke="var(--text-secondary)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => v} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'rgba(28, 28, 30, 0.8)',
+                    backdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    color: '#fff',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)'
+                  }}
+                  itemStyle={{ color: 'var(--primary)', fontWeight: 'bold' }}
+                  formatter={(value) => [`${value} mln`, "Farq"]}
+                  labelStyle={{ color: 'var(--text-secondary)', marginBottom: '4px' }}
+                  labelFormatter={(label) => `${label}-sana`}
+                />
+                <Area
+                  type="natural"
+                  dataKey="value"
+                  stroke="var(--primary)"
+                  strokeWidth={3}
+                  fillOpacity={1}
+                  fill="url(#colorValue)"
+                  activeDot={{ r: 6, fill: "var(--primary)", stroke: "#fff", strokeWidth: 2 }}
+                  isAnimationActive={true}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
 
