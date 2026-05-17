@@ -129,13 +129,16 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         if message.caption:
             transcribed_text = f"{transcribed_text}. Qo'shimcha izoh: {message.caption}"
 
-        # ── Delete status message and process ──
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
+        # ── Status xabarni fire-and-forget o'chiramiz (foydalanuvchini kutkazmaslik uchun) ──
+        async def _delete_status():
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+        import asyncio as _asyncio
+        _asyncio.create_task(_delete_status())
 
-        # Tranzaksiya pipeline'ga yuborish
+        # Tranzaksiya pipeline'ga DARROV yuboramiz (status o'chishini kutmaymiz)
         await handle_transaction_text(message, transcribed_text, state)
 
     except Exception as e:
@@ -149,8 +152,12 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
             except Exception:
                 pass
     finally:
-        if os.path.exists(local_path):
+        # Faylni asinxron o'chiramiz (foydalanuvchi javobini kutmaymiz)
+        async def _cleanup_file():
             try:
-                os.remove(local_path)
+                if os.path.exists(local_path):
+                    os.remove(local_path)
             except Exception:
                 pass
+        import asyncio as _asyncio
+        _asyncio.create_task(_cleanup_file())

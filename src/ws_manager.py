@@ -37,10 +37,20 @@ class ConnectionManager:
     async def broadcast(self, user_id: int, event: str, data: dict = None):
         """
         Send an event to all connected websockets for a specific user.
+        Also invalidates the user's dashboard cache so the next /api/dashboard
+        call returns fresh data immediately (no 10s wait).
         """
         if data is None:
             data = {}
-            
+
+        # ── Invalidate dashboard cache for this user (mutations are noticed instantly) ──
+        # Lazy import to avoid circular dependency (api.py imports ws_manager).
+        try:
+            from src.api import invalidate_user_cache
+            invalidate_user_cache(user_id)
+        except Exception:
+            pass  # cache invalidation is best-effort
+
         if user_id in self.active_connections:
             message = json.dumps({"event": event, "data": data}, default=str)
             websockets = self.active_connections[user_id].copy()

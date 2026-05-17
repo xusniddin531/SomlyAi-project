@@ -1478,3 +1478,183 @@ a {
 .btn-primary:active {
   transform: scale(0.98);
 }
+
+
+/* ═══════════════════════════════════════════════
+   PREMIUM APPLE POLISH — 2025
+   ═══════════════════════════════════════════════ */
+
+:root {
+  /* Reusable easings — har joyda bir xil his */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);     /* bouncy */
+  --ease-smooth: cubic-bezier(0.16, 1, 0.3, 1);          /* iOS standard */
+  --ease-snappy: cubic-bezier(0.25, 0.46, 0.45, 0.94);   /* fast & tight */
+
+  /* Shadow scales */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.18);
+  --shadow-glow: 0 0 24px var(--primary-glow);
+}
+
+/* ── Smooth scroll everywhere ── */
+html, body, .main-content-scroll {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Premium scrollbar (subtle) ── */
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+
+/* ── Selection accent color ── */
+::selection {
+  background: var(--primary-glow);
+  color: var(--text-primary);
+}
+
+/* ── Focus rings (a11y + premium feel) ── */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--primary-glow);
+}
+
+/* ── Page enter animation ── */
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(8px) scale(0.995); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.main-content-scroll > * {
+  animation: pageEnter 0.4s var(--ease-smooth);
+}
+
+/* ── BottomNav active indicator dot (iOS Safari style) ── */
+.nav-item { position: relative; }
+.nav-item.active::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--primary);
+  transform: translateX(-50%);
+  box-shadow: 0 0 8px var(--primary);
+  animation: dotPop 0.4s var(--ease-spring);
+}
+@keyframes dotPop {
+  from { transform: translateX(-50%) scale(0); opacity: 0; }
+  to   { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+/* ── ChatWidget polish ── */
+.chat-fab {
+  animation: chatBreathe 3.2s ease-in-out infinite;
+  will-change: transform, box-shadow;
+}
+@keyframes chatBreathe {
+  0%, 100% { box-shadow: 0 8px 24px rgba(10, 132, 255, 0.4); transform: scale(1); }
+  50%      { box-shadow: 0 12px 32px rgba(10, 132, 255, 0.55); transform: scale(1.04); }
+}
+.chat-fab:active { animation: none; transform: scale(0.92); }
+
+.chat-message-bubble {
+  animation: bubbleIn 0.3s var(--ease-spring);
+  will-change: transform, opacity;
+}
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translateY(8px) scale(0.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.chat-send-active {
+  animation: sendPulse 1.8s ease-in-out infinite;
+}
+@keyframes sendPulse {
+  0%, 100% { box-shadow: 0 4px 12px rgba(10, 132, 255, 0.3); }
+  50%      { box-shadow: 0 6px 20px rgba(10, 132, 255, 0.55); }
+}
+
+/* ── Toast (top-center, slide-down) ── */
+.app-toast { animation: toastSlideDown 0.4s var(--ease-spring); }
+@keyframes toastSlideDown {
+  from { transform: translate(-50%, -120%); opacity: 0; }
+  to   { transform: translate(-50%, 0);     opacity: 1; }
+}
+
+/* ── Skeleton shimmer (premium gradient) ── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--border) 0%,
+    rgba(255, 255, 255, 0.06) 50%,
+    var(--border) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s linear infinite;
+  border-radius: 12px;
+}
+@keyframes skeletonShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Tx-icon premium (gradient + glow on hover) ── */
+.tx-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+  transition: transform 0.25s var(--ease-smooth), box-shadow 0.25s var(--ease-smooth);
+}
+.tx-icon-income {
+  background: linear-gradient(135deg, rgba(48, 209, 88, 0.18), rgba(48, 209, 88, 0.06));
+  box-shadow: inset 0 0 0 1px rgba(48, 209, 88, 0.3);
+}
+.tx-icon-expense {
+  background: linear-gradient(135deg, rgba(255, 69, 58, 0.18), rgba(255, 69, 58, 0.06));
+  box-shadow: inset 0 0 0 1px rgba(255, 69, 58, 0.3);
+}
+.tx-item:hover .tx-icon { transform: scale(1.06) rotate(-2deg); }
+
+/* ── Tx-item smoother row ── */
+.tx-item {
+  padding: 12px 4px;
+  border-radius: 12px;
+  margin-bottom: 4px;
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+}
+.tx-item:hover { background-color: var(--border); }
+
+/* ── Input/select default styling ── */
+input, select, textarea { font-family: var(--font-family); }
+input::placeholder, textarea::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* ── Disable jitter for reduced-motion users ── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

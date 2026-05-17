@@ -2105,6 +2105,37 @@ STATISTIKA KONTEKSTI:
 
 
 # ═══════════════════════════════════════
+# PUBLIC CONFIG (bot username, webapp settings) — cached forever
+# ═══════════════════════════════════════
+_PUBLIC_CONFIG_CACHE = {}
+
+@routes.get('/api/config')
+async def get_public_config(request):
+    """
+    Public client config: bot username, webapp URL, etc.
+    Cached after first call (bot info doesn't change).
+    """
+    if _PUBLIC_CONFIG_CACHE:
+        return set_cors(web.json_response(_PUBLIC_CONFIG_CACHE))
+
+    bot = request.app.get('bot')
+    bot_username = "somly_ai_bot"  # fallback
+    if bot:
+        try:
+            me = await bot.get_me()
+            if me and me.username:
+                bot_username = me.username
+        except Exception as e:
+            logger.warning(f"/api/config: failed to fetch bot username: {e}")
+
+    _PUBLIC_CONFIG_CACHE.update({
+        "bot_username": bot_username,
+        "bot_link": f"https://t.me/{bot_username}",
+    })
+    return set_cors(web.json_response(_PUBLIC_CONFIG_CACHE))
+
+
+# ═══════════════════════════════════════
 # USER-FACING AI CHAT (Mini App Widget)
 # ═══════════════════════════════════════
 
@@ -2193,7 +2224,14 @@ async def user_ai_chat(request):
 
         intent = parsed.get("intent", "chat")
         reply = parsed.get("chat_response") or parsed.get("reply") or ""
+
+        # ── AI dan kelgan native actions (asosiy yo'l) ──
+        raw_actions = parsed.get("mini_app_actions") or []
         actions = []
+        allowed_action_types = {"navigate", "change_language", "change_theme", "open_modal", "refresh_data"}
+        for a in raw_actions:
+            if isinstance(a, dict) and a.get("type") in allowed_action_types:
+                actions.append(a)
 
         # ── REPORT intent: AI hisobotini olib qaytaramiz ──
         if intent == "report":
@@ -2251,46 +2289,29 @@ async def user_ai_chat(request):
         if not reply:
             reply = "Tushundim. Yana savolingiz bormi?"
 
-        # ── Page navigation hints (chat_response ichida "navigate:/path" bo'lsa) ──
-        # AI keyinroq native action chiqarishni o'rganadi, hozir keyword detection:
-        msg_low = message_text.lower()
-        nav_keywords = {
-            "/balances": ["balansim", "balans", "hisoblarim", "balanslar"],
-            "/debts": ["qarz", "qarzlar"],
-            "/categories": ["kategoriya", "kategoriyalar"],
-            "/reports": ["hisobot", "statistika", "reports"],
-            "/settings": ["sozlama", "tilni o'zgartir", "til o'zgartir", "mavzu"],
-            "/profile": ["profil", "akkaunt"],
-        }
-        for target, kws in nav_keywords.items():
-            if any(f"{kw} ochi" in msg_low or f"{kw} ga o'tkaz" in msg_low or f"{kw} ga o't" in msg_low for kw in kws):
-                if target != current_page:
-                    actions.append({"type": "navigate", "to": target})
-                break
+        # ── Fallback keyword detection (faqat AI native actions bermagan bo'lsa) ──
+        if not actions:
+            msg_low = message_text.lower()
+            nav_keywords = {
+                "/balances": ["balansim ochi", "balans ochi", "balanslar ochi", "balansga o't"],
+                "/debts": ["qarz ochi", "qarzlar ochi", "qarzlarga o't"],
+                "/categories": ["kategoriya ochi", "kategoriyalar ochi"],
+                "/reports": ["hisobot ochi", "statistika ochi", "reports ochi"],
+                "/settings": ["sozlama ochi", "settings ochi"],
+                "/profile": ["profil ochi", "akkaunt ochi"],
+            }
+            for target, kws in nav_keywords.items():
+                if any(kw in msg_low for kw in kws):
+                    if target != current_page:
+                        actions.append({"type": "navigate", "to": target})
+                    break
 
-        # Language change detection
-        if any(p in msg_low for p in ["til rus", "ruscha qil", "switch to ru", "русский"]):
-            actions.append({"type": "change_language", "code": "ru"})
-        elif any(p in msg_low for p in ["til ingliz", "english qil", "switch to en"]):
-            actions.append({"type": "change_language", "code": "en"})
-        elif any(p in msg_low for p in ["til o'zbek", "uzbek qil", "switch to uz"]):
-            actions.append({"type": "change_language", "code": "uz"})
-
-        # Theme change detection
-        if "qorong" in msg_low or "dark" in msg_low:
-            if "yoqib" in msg_low or "qil" in msg_low or "o'tkaz" in msg_low:
-                actions.append({"type": "change_theme", "mode": "dark"})
-        elif "yorug" in msg_low or "light" in msg_low or "oq" in msg_low:
-            if "qil" in msg_low or "o'tkaz" in msg_low:
-                actions.append({"type": "change_theme", "mode": "light"})
-
-        # Modal open detection
-        if any(p in msg_low for p in ["kirim qo'sh", "kirim kirit"]):
-            actions.append({"type": "open_modal", "modal": "kirim"})
-        elif any(p in msg_low for p in ["chiqim qo'sh", "chiqim kirit", "xarajat kirit"]):
-            actions.append({"type": "open_modal", "modal": "chiqim"})
-        elif any(p in msg_low for p in ["qarz qo'sh", "qarz kirit"]):
-            actions.append({"type": "open_modal", "modal": "qarz"})
+            if any(p in msg_low for p in ["tilni rus", "ruscha qil", "switch to ru"]):
+                actions.append({"type": "change_language", "code": "ru"})
+            elif any(p in msg_low for p in ["tilni ingliz", "english qil", "switch to en"]):
+                actions.append({"type": "change_language", "code": "en"})
+            elif any(p in msg_low for p in ["tilni o'zbek", "uzbek qil", "switch to uz"]):
+                actions.append({"type": "change_language", "code": "uz"})
 
         # Save assistant reply to history
         asyncio.create_task(save_chat_message(user_id, "assistant", reply))

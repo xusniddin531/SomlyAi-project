@@ -5,7 +5,8 @@ import { useTranslation } from 'react-i18next';
 import { MessageCircle, X, Send, Mic, Loader2 } from 'lucide-react';
 import { fetchApi, getUserId } from '../utils/api';
 
-const BOT_USERNAME = 'somly_ai_bot'; // Voice — Telegram bot orqali
+// Bot username /api/config dan dinamik olinadi (init paytida)
+let CACHED_BOT_LINK = 'https://t.me/somly_ai_bot'; // fallback
 
 /* ─── ChatWidget: o'ng past burchakdagi suzuvchi AI yordamchi ───
  * - Bossam bottom sheet chat ochiladi
@@ -24,10 +25,22 @@ const ChatWidget = () => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [botLink, setBotLink] = useState(CACHED_BOT_LINK);
   const scrollRef = useRef(null);
+  const inputRef = useRef(null);
 
   // Pulse animation flag (yangi xabar bo'lganda diqqat tortish uchun)
   const [hasUnread, setHasUnread] = useState(false);
+
+  // Init: bot username'ni API'dan oling (faqat 1 marta)
+  useEffect(() => {
+    fetchApi('/config').then(cfg => {
+      if (cfg && cfg.bot_link) {
+        CACHED_BOT_LINK = cfg.bot_link;
+        setBotLink(cfg.bot_link);
+      }
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     // Auto-scroll to bottom on new messages
@@ -35,6 +48,13 @@ const ChatWidget = () => {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, loading]);
+
+  // Auto-focus input when modal opens (Apple-like)
+  useEffect(() => {
+    if (isOpen && inputRef.current) {
+      setTimeout(() => inputRef.current?.focus(), 350);
+    }
+  }, [isOpen]);
 
   // Action handler — backend dan kelgan har bir action'ni bajaradi
   const executeAction = useCallback((action) => {
@@ -121,8 +141,8 @@ const ChatWidget = () => {
 
     if (tg?.showPopup) {
       tg.showPopup({
-        title: 'Ovoz yuborish',
-        message: "Bot chatiga o'tib, mikrofon tugmasini bosing va ovoz yuboring. Men o'qib, bu yerga javobni qaytaraman.",
+        title: '🎤 Ovoz yuborish',
+        message: "Bot chatiga o'ting va mikrofon tugmasini bosib ovoz yuboring. Men o'qib, ma'lumotlarni saqlayman.",
         buttons: [
           { id: 'open', type: 'default', text: "Bot chatini ochish" },
           { id: 'cancel', type: 'cancel' }
@@ -130,15 +150,14 @@ const ChatWidget = () => {
       }, (btnId) => {
         if (btnId === 'open') {
           if (tg.openTelegramLink) {
-            tg.openTelegramLink(`https://t.me/${BOT_USERNAME}`);
+            tg.openTelegramLink(botLink);
           } else if (tg.close) {
             tg.close();
           }
         }
       });
     } else {
-      // Fallback: showPopup yo'q bo'lsa
-      window.open(`https://t.me/${BOT_USERNAME}`, '_blank');
+      window.open(botLink, '_blank');
     }
   };
 
@@ -157,12 +176,13 @@ const ChatWidget = () => {
         <button
           onClick={handleOpen}
           aria-label="AI Chat ochish"
+          className="chat-fab"
           style={{
             position: 'fixed',
-            bottom: '90px',
+            bottom: 'calc(90px + env(safe-area-inset-bottom))',
             right: '20px',
-            width: '56px',
-            height: '56px',
+            width: '58px',
+            height: '58px',
             borderRadius: '50%',
             background: 'linear-gradient(135deg, #0A84FF 0%, #5E5CE6 100%)',
             border: 'none',
@@ -171,14 +191,8 @@ const ChatWidget = () => {
             alignItems: 'center',
             justifyContent: 'center',
             cursor: 'pointer',
-            boxShadow: '0 8px 24px rgba(10, 132, 255, 0.4)',
             zIndex: 9998,
-            transition: 'transform 0.2s',
           }}
-          onMouseDown={(e) => e.currentTarget.style.transform = 'scale(0.92)'}
-          onMouseUp={(e) => e.currentTarget.style.transform = 'scale(1)'}
-          onTouchStart={(e) => e.currentTarget.style.transform = 'scale(0.92)'}
-          onTouchEnd={(e) => e.currentTarget.style.transform = 'scale(1)'}
         >
           <MessageCircle size={26} />
           {hasUnread && (
