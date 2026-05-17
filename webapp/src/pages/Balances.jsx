@@ -512,7 +512,7 @@ const BalancesPage = ({ initData }) => {
       )}
 
       {/* Add Balance Modal - Professional Design */}
-      {activeModal === 'add' && (
+      {activeModal === 'add' && createPortal(
         <div style={{
           position: 'fixed',
           top: 0,
@@ -520,9 +520,11 @@ const BalancesPage = ({ initData }) => {
           right: 0,
           bottom: 0,
           background: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(4px)',
+          WebkitBackdropFilter: 'blur(4px)',
           display: 'flex',
           alignItems: 'flex-end',
-          zIndex: 1000
+          zIndex: 9999
         }}
         onClick={() => setActiveModal(null)}
         >
@@ -1049,7 +1051,7 @@ const BalancesPage = ({ initData }) => {
               Somly AI avtomatik o'zi yaratadi!
             </div>
 
-            {/* Close Button - Full Width Dark Blue */}
+            {/* Save Button - Full Width Dark Blue */}
             <button
               onClick={async () => {
                 if (!addForm.amount || !addForm.title) {
@@ -1058,26 +1060,29 @@ const BalancesPage = ({ initData }) => {
                 }
                 await handleAddBalance();
               }}
+              disabled={!addForm.amount || !addForm.title}
               style={{
                 width: '100%',
-                background: '#1E3A8A',
+                background: (addForm.amount && addForm.title) ? '#1E3A8A' : 'var(--border)',
                 border: 'none',
                 padding: '16px 20px',
                 borderRadius: '12px',
                 color: '#fff',
                 fontWeight: '700',
                 fontSize: '15px',
-                cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(30, 58, 138, 0.3)',
+                cursor: (addForm.amount && addForm.title) ? 'pointer' : 'not-allowed',
+                opacity: (addForm.amount && addForm.title) ? 1 : 0.6,
+                boxShadow: (addForm.amount && addForm.title) ? '0 4px 12px rgba(30, 58, 138, 0.3)' : 'none',
                 transition: 'all 0.2s'
               }}
-              onMouseOver={(e) => e.target.style.background = '#163066'}
-              onMouseOut={(e) => e.target.style.background = '#1E3A8A'}
+              onMouseOver={(e) => { if (addForm.amount && addForm.title) e.target.style.background = '#163066'; }}
+              onMouseOut={(e) => { if (addForm.amount && addForm.title) e.target.style.background = '#1E3A8A'; }}
             >
-              Yopish
+              Saqlash
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Add Card Modal */}

@@ -61,6 +61,16 @@ class GroqServerError(Exception):
     pass
 
 
+class WhisperInvalidAudioError(Exception):
+    """Audio file rejected by Whisper (bad format, too large, corrupted)."""
+    pass
+
+
+class WhisperAllKeysExhaustedError(Exception):
+    """All API keys returned 401/quota for Whisper — none can transcribe."""
+    pass
+
+
 @dataclass
 class KeyStats:
     key: str
@@ -70,6 +80,7 @@ class KeyStats:
     requests_count: int = 0
     last_error_time: float = 0.0
     connection_errors: int = 0
+    admin_alerted: bool = False  # True if admin already received alert for this key being disabled
 
 
 class GroqService:
@@ -176,12 +187,16 @@ class GroqService:
                     ks.status = "exhausted"
                     ks.last_error_time = time.time()
                     log_error(ErrorType.GROQ_RATE_LIMIT, f"Key {ks.index+1} invalid (401)", exception=e)
-                    asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} is INVALID (401 Unauthorized). It has been disabled."))
+                    if not ks.admin_alerted:
+                        ks.admin_alerted = True
+                        asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} is INVALID (401 Unauthorized). It has been disabled."))
                 elif "quota" in error_str.lower():
                     ks.status = "exhausted"
                     ks.last_error_time = time.time()
                     log_error(ErrorType.GROQ_RATE_LIMIT, f"Key {ks.index+1} quota exceeded", exception=e)
-                    asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} EXHAUSTED (Quota exceeded)."))
+                    if not ks.admin_alerted:
+                        ks.admin_alerted = True
+                        asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} EXHAUSTED (Quota exceeded)."))
                 elif status_code >= 500:
                     raise GroqServerError(f"Groq server error: {status_code}")
                 else:
@@ -193,9 +208,9 @@ class GroqService:
                     ks.status = "cooling"
                     ks.last_error_time = time.time()
                     logger.warning(f"Key {ks.index+1} connection errors maxed. Cooling down.")
-                
+
             attempts += 1
-        
+
         raise GroqQueueError("All API keys exhausted after max retries")
 
     async def stream_chat_completion_with_retry(self, messages: List[Dict], **kwargs):
@@ -250,24 +265,42 @@ class GroqService:
         yield "Xatolik: Tizim hozircha javob bera olmaydi (max retries)."
 
     async def transcribe_audio_with_retry(self, file_path: str) -> str:
-        attempts = 0
-        max_retries = len(self.keys_stats) * 2
+        """
+        Transcribe audio via Groq Whisper API with full key rotation + model fallback.
+
+        Raises:
+            WhisperInvalidAudioError: file rejected (bad format, too large, corrupted)
+            WhisperAllKeysExhaustedError: all keys returned 401/quota
+            GroqServerError: Groq returned 500+
+            GroqQueueError: keys cooling, request should be queued
+        """
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        fname = os.path.basename(file_path)
+        logger.info(f"Whisper start: file={fname}, size={file_size} bytes")
+
         models_to_try = ["whisper-large-v3-turbo", "whisper-large-v3"]
+        # Try each key with each model: 2 models × N keys attempts
+        max_retries = len(self.keys_stats) * len(models_to_try)
+        attempts = 0
+        invalid_audio_count = 0  # 400/413/415 across attempts
 
         while attempts < max_retries:
             try:
                 ks = self.get_best_key()
             except GroqQueueError:
+                # No active keys — check if all are exhausted (401/quota) vs cooling
+                exhausted = sum(1 for k in self.keys_stats if k.status == "exhausted")
+                if exhausted == len(self.keys_stats):
+                    raise WhisperAllKeysExhaustedError("All Groq API keys are invalid/quota-exceeded")
                 raise
 
-            model = models_to_try[0] if attempts < max_retries // 2 else models_to_try[-1]
+            # Alternate model per attempt — every key sees both models
+            model = models_to_try[attempts % len(models_to_try)]
 
             try:
                 with open(file_path, "rb") as file:
                     file_data = file.read()
-                
-                # Use filename with proper extension for Groq
-                fname = os.path.basename(file_path)
+
                 transcription = await ks.client.audio.transcriptions.create(
                     file=(fname, file_data),
                     model=model,
@@ -275,12 +308,13 @@ class GroqService:
                 )
                 ks.requests_count += 1
                 ks.connection_errors = 0
-                logger.info(f"Transcription success (model={model}, key={ks.index+1}): {transcription.text[:80]}...")
-                return transcription.text
+                text = transcription.text or ""
+                logger.info(f"Whisper success (model={model}, key={ks.index+1}, size={file_size}): {text[:80]}...")
+                return text
             except APIStatusError as e:
                 status_code = getattr(e, 'status_code', 0)
                 error_str = str(e)
-                logger.error(f"Groq Audio Error (key {ks.index+1}, model={model}): {error_str}")
+                logger.error(f"Whisper error (key={ks.index+1}, model={model}, status={status_code}, size={file_size}): {error_str[:200]}")
 
                 if status_code == 429 or "rate" in error_str.lower() or status_code == 403:
                     ks.status = "cooling"
@@ -288,25 +322,46 @@ class GroqService:
                 elif status_code == 401 or "invalid_api_key" in error_str.lower():
                     ks.status = "exhausted"
                     ks.last_error_time = time.time()
-                    asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} is INVALID (401 Unauthorized) for Audio. It has been disabled."))
+                    if not ks.admin_alerted:
+                        ks.admin_alerted = True
+                        asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} is INVALID (401) for Audio. Disabled."))
                 elif "quota" in error_str.lower():
                     ks.status = "exhausted"
                     ks.last_error_time = time.time()
-                    asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} EXHAUSTED (Audio Quota)."))
+                    if not ks.admin_alerted:
+                        ks.admin_alerted = True
+                        asyncio.create_task(self.alert_admin(f"🚨 Groq API Key {ks.index+1} EXHAUSTED (Audio Quota)."))
+                elif status_code in (400, 413, 415, 422):
+                    # File-level error — won't be fixed by switching keys
+                    invalid_audio_count += 1
+                    if invalid_audio_count >= 2:
+                        # Confirmed across 2 attempts → it's the file, not the key
+                        raise WhisperInvalidAudioError(f"Audio rejected by Whisper: status={status_code}, {error_str[:120]}")
                 elif status_code >= 500:
                     raise GroqServerError(f"Groq server error: {status_code}")
                 else:
-                    raise e
+                    # Unknown status — log loudly, try next attempt
+                    logger.warning(f"Whisper unknown status {status_code} on key {ks.index+1}, will retry")
             except (APITimeoutError, APIConnectionError) as e:
-                logger.error(f"Groq Audio connection error (key {ks.index+1}): {str(e)}")
+                logger.error(f"Whisper connection error (key={ks.index+1}): {str(e)[:150]}")
                 ks.connection_errors += 1
                 if ks.connection_errors >= 3:
                     ks.status = "cooling"
                     ks.last_error_time = time.time()
-                
+            except FileNotFoundError:
+                logger.error(f"Whisper: audio file not found: {file_path}")
+                raise WhisperInvalidAudioError(f"Audio file missing: {file_path}")
+            except Exception as e:
+                # Unexpected — log and try next attempt
+                logger.error(f"Whisper unexpected error (key={ks.index+1}, model={model}): {type(e).__name__}: {str(e)[:150]}")
+
             attempts += 1
 
-        raise GroqQueueError("All API keys exhausted for audio")
+        # All retries exhausted — check final state
+        exhausted = sum(1 for k in self.keys_stats if k.status == "exhausted")
+        if exhausted == len(self.keys_stats):
+            raise WhisperAllKeysExhaustedError("All Groq API keys are invalid/quota-exceeded")
+        raise GroqQueueError("All API keys exhausted for audio after retries")
 
     # ═══════════════════════════════════════
     # ISMNI AJRATIB OLISH (ovozdan)

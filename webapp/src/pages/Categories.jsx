@@ -580,23 +580,25 @@ const CategoriesPage = ({ initData }) => {
             {activeModal === 'add' ? (
               <button
                 onClick={addCat}
+                disabled={!form.name}
                 style={{
                   width: '100%',
-                  background: '#1E3A8A',
+                  background: form.name ? '#1E3A8A' : 'var(--border)',
                   border: 'none',
                   padding: '16px 20px',
                   borderRadius: '12px',
                   color: '#fff',
                   fontWeight: '700',
                   fontSize: '15px',
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 12px rgba(30, 58, 138, 0.3)',
+                  cursor: form.name ? 'pointer' : 'not-allowed',
+                  opacity: form.name ? 1 : 0.6,
+                  boxShadow: form.name ? '0 4px 12px rgba(30, 58, 138, 0.3)' : 'none',
                   transition: 'all 0.2s'
                 }}
-                onMouseOver={(e) => e.target.style.background = '#163066'}
-                onMouseOut={(e) => e.target.style.background = '#1E3A8A'}
+                onMouseOver={(e) => { if (form.name) e.target.style.background = '#163066'; }}
+                onMouseOut={(e) => { if (form.name) e.target.style.background = '#1E3A8A'; }}
               >
-                Yopish
+                Saqlash
               </button>
             ) : (
               <div style={{ display: 'flex', gap: '12px' }}>

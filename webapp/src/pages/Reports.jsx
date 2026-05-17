@@ -6,6 +6,25 @@ import { fetchApi, showToast } from '../utils/api';
 import { EmptyState, ErrorState, SkeletonPage } from '../components/StateViews';
 import PageHeader from '../components/PageHeader';
 
+/* ─── formatShortAmount: kichik raqamlarni bus, kattalarni qisqartirilgan ko'rsatadi.
+ *   500          → "500"
+ *   12 500       → "12 500"
+ *   100 000      → "100 000"
+ *   1 500 000    → "1.5M"
+ *   -100 000     → "-100 000"   (oldingi xato: "-0.1M" emas)
+ *   -2 500 000   → "-2.5M"
+ */
+const formatShortAmount = (n) => {
+  if (n === null || n === undefined || isNaN(n)) return '0';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) {
+    return `${sign}${(abs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  }
+  // 1 mln dan kichik bo'lsa, butun ko'rsatamiz (bo'shliq separator bilan)
+  return `${sign}${Math.round(abs).toLocaleString('uz-UZ').replace(/,/g, ' ')}`;
+};
+
 const ReportsPage = ({ initData }) => {
   const { t } = useTranslation();
   const [transactions, setTransactions] = useState([]);
@@ -372,7 +391,7 @@ const ReportsPage = ({ initData }) => {
                   fontWeight: 600,
                   color: group.total >= 0 ? 'var(--success)' : 'var(--danger)'
                 }}>
-                  {group.total >= 0 ? '+' : ''}{(group.total / 1000000).toFixed(1)}M
+                  {group.total >= 0 ? '+' : ''}{formatShortAmount(group.total)}
                 </span>
               </div>
 
@@ -636,7 +655,7 @@ const TransactionCard = ({ tx, onTap, onSwipe }) => {
             fontWeight: 600,
             color: tx.type === 'kirim' ? 'var(--success)' : 'var(--danger)'
           }}>
-            {tx.type === 'kirim' ? '+' : '-'}{(tx.amount / 1000000).toFixed(1)}M
+            {tx.type === 'kirim' ? '+' : '-'}{formatShortAmount(tx.amount)}
           </span>
         </div>
         <div style={{
@@ -646,10 +665,10 @@ const TransactionCard = ({ tx, onTap, onSwipe }) => {
           fontSize: '12px',
           color: 'var(--text-secondary)'
         }}>
-          <span>{tx.category}</span>
-          <span>•</span>
-          <span>{tx.balance_name}</span>
-          <span>•</span>
+          {tx.category && <span>{tx.category}</span>}
+          {tx.category && tx.balance_name && <span>•</span>}
+          {tx.balance_name && <span>{tx.balance_name}</span>}
+          {(tx.category || tx.balance_name) && <span>•</span>}
           <span>{new Date(tx.created_at).toLocaleTimeString('uz-UZ', {
             hour: '2-digit',
             minute: '2-digit'

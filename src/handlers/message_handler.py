@@ -23,7 +23,8 @@ from src.database import (
     get_user_habits,
     get_last_transaction, delete_transaction_by_id, update_transaction_by_id, get_monthly_summary,
     get_webapp_url, get_user_all_balance_names, get_custom_categories,
-    get_chat_history, save_chat_message, reminders_collection
+    get_chat_history, save_chat_message, reminders_collection,
+    get_user_all_balances,
 )
 from src.services.groq_service import groq_service, GroqQueueError
 from src.services.scheduler import schedule_one_time_reminder
@@ -63,6 +64,28 @@ def parse_display_date(date_str: str) -> str:
         return datetime.strptime(date_str, "%Y-%m-%d").strftime("%d.%m.%Y")
     except Exception:
         return date_str
+
+
+async def build_fallback_balance_text(user_id: int) -> str:
+    """
+    Build a balance summary directly from MongoDB (no AI).
+    Used when AI is unavailable but user asked for balance info.
+    """
+    try:
+        balances = await get_user_all_balances(user_id)
+    except Exception as e:
+        logger.error(f"Fallback balance: failed to fetch for {user_id}: {e}")
+        return "💰 Hozir balans ma'lumotlarini olib bo'lmadi. Keyinroq urinib ko'ring."
+
+    if not balances:
+        return "💰 Sizda hali balans yo'q. /newbalance bilan qo'shing."
+
+    lines = ["💰 Sizning balansingiz:"]
+    for currency, info in balances.items():
+        amount = info.get("amount", 0)
+        title = info.get("title", currency)
+        lines.append(f"• {title}: {format_number(amount)} {currency}")
+    return "\n".join(lines)
 
 
 async def check_limit_warning(telegram_id: int, currency: str, new_expense_total: float, lang: str = "uz") -> str:
@@ -338,22 +361,28 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
     # ─── AQLLI MASLAHAT (Advice Intent) ───
     if intent == "advice":
         from src.database import get_financial_advice_context, get_user
-        from src.services.groq_service import groq_service
-        
+
         await message.answer("💡 Holatingizni tahlil qilyapman, bir soniya...")
-        
-        user_data = await get_user(user_id)
-        # Boshlang'ich valyuta uchun (UZS deylik) tahlil
-        currency = "UZS" 
-        context_data = await get_financial_advice_context(user_id, currency)
-        
-        advice_text = await groq_service.generate_smart_financial_advice(
-            user_context=user_data,
-            financial_data=context_data,
-            trigger_type="user_requested",
-            language=language
-        )
-        await message.answer(advice_text)
+
+        try:
+            user_data = await get_user(user_id)
+            currency = "UZS"
+            context_data = await get_financial_advice_context(user_id, currency)
+
+            advice_text = await groq_service.generate_smart_financial_advice(
+                user_context=user_data,
+                financial_data=context_data,
+                trigger_type="user_requested",
+                language=language
+            )
+            await message.answer(advice_text)
+        except GroqQueueError:
+            await message.answer(t(language, "err_ai_busy"))
+        except Exception as e:
+            log_error(ErrorType.GROQ_SERVER, f"Advice generation failed", user_id, e)
+            # Fallback: send a chat_response if AI provided one, else a generic message
+            fallback = data.get("chat_response") or "💡 Hozir batafsil maslahat tayyorlay olmadim. Keyinroq qayta urinib ko'ring."
+            await message.answer(fallback)
         return
 
     # ─── 1.6. Special Intents (QISM 6) ───
@@ -416,13 +445,27 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
     if intent == "report":
         from src.database import get_report_context
         query = data.get("report_query", "qancha sarfladim?")
-        context = await get_report_context(user_id)
-        user_segment = data.get("user_segment")
-        
-        report_text = await groq_service.generate_report_response(query, context, language, user_segment)
-        
-        kb = await build_webapp_keyboard("/reports", language, button_text="📊 " + t(language, "deeplink_view_reports"))
-        await message.answer(report_text, reply_markup=kb)
+
+        try:
+            context = await get_report_context(user_id)
+            user_segment = data.get("user_segment")
+            report_text = await groq_service.generate_report_response(query, context, language, user_segment)
+            kb = await build_webapp_keyboard("/reports", language, button_text="📊 " + t(language, "deeplink_view_reports"))
+            await message.answer(report_text, reply_markup=kb)
+        except GroqQueueError:
+            # AI band — direct balansni qaytaramiz
+            fallback = await build_fallback_balance_text(user_id)
+            kb = await build_webapp_keyboard("/reports", language, button_text="📊 " + t(language, "deeplink_view_reports"))
+            await message.answer(fallback, reply_markup=kb)
+        except Exception as e:
+            log_error(ErrorType.GROQ_SERVER, f"Report generation failed", user_id, e)
+            # MongoDB yoki AI xato — fallback ravishda balansni DIRECT yuboramiz
+            fallback = await build_fallback_balance_text(user_id)
+            try:
+                kb = await build_webapp_keyboard("/reports", language, button_text="📊 " + t(language, "deeplink_view_reports"))
+                await message.answer(fallback, reply_markup=kb)
+            except Exception:
+                await message.answer(fallback)
         return
 
     # ─── 2. Bot haqida savol (o'zini tanishtirish) ───
@@ -797,8 +840,8 @@ async def process_extracted_transactions(message: Message, transactions: list, u
                     
                     # ─── AVTOMATIK MASLAHAT TEKSHIRUVI (LIMIT VA 40% KATEGORIYA) ───
                     from src.database import can_send_advice_today, get_financial_advice_context, get_user, update_last_advice_date
-                    from src.services.groq_service import groq_service
-                    
+
+
                     if await can_send_advice_today(user_id):
                         trigger = None
                         if limit_warning:

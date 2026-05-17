@@ -95,9 +95,9 @@ const SettingsPage = ({ initData }) => {
                   onClick={() => changeLanguage(lang.code)}
                   style={{
                     flex: '1 1 calc(33% - 10px)', padding: '12px', borderRadius: '12px',
-                    border: i18n.language === lang.code ? '1px solid var(--primary)' : '1px solid rgba(255,255,255,0.1)',
-                    background: i18n.language === lang.code ? 'rgba(59, 130, 246, 0.1)' : 'rgba(255,255,255,0.03)',
-                    color: i18n.language === lang.code ? 'var(--primary)' : '#fff',
+                    border: i18n.language === lang.code ? '1px solid var(--primary)' : '1px solid var(--border)',
+                    background: i18n.language === lang.code ? 'rgba(59, 130, 246, 0.15)' : 'var(--bg)',
+                    color: i18n.language === lang.code ? 'var(--primary)' : 'var(--text-primary)',
                     fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s'
                   }}
                 >

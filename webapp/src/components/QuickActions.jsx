@@ -12,13 +12,26 @@ const QuickActions = ({ balances, onSuccess }) => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (activeModal && balances?.length > 0) {
-      setForm(prev => ({
-        ...prev,
+    // Modal yopilganda barcha forma maydonlarini tozalash
+    if (!activeModal) {
+      setForm({ amount: '', category: '', balanceId: '', note: '', person: '', dueDate: '', toBalanceId: '', currency: 'UZS', direction: 'berdim' });
+      setAmountError('');
+      return;
+    }
+    // Modal ochilganda yangi forma + standart balanslar
+    if (balances?.length > 0) {
+      setForm({
+        amount: '',
+        category: '',
+        note: '',
+        person: '',
+        dueDate: '',
+        direction: 'berdim',
         balanceId: balances[0].currency,
         toBalanceId: balances.length > 1 ? balances[1].currency : balances[0].currency,
         currency: balances[0].currency
-      }));
+      });
+      setAmountError('');
     }
   }, [activeModal, balances]);
 

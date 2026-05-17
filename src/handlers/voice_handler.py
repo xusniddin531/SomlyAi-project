@@ -7,9 +7,11 @@ Routes voice messages:
 
 Error handling:
 - Voice file download failure → err_voice_download
-- Voice too short (< 0.5s) → err_voice_too_short
-- Whisper transcription failure → err_voice_whisper
-- All Groq keys exhausted → err_ai_busy
+- Voice too short (< 1s) → err_voice_too_short
+- Voice too long (> 120s) or too large (> 25MB) → specific error
+- Whisper invalid audio (bad format) → err_voice_whisper
+- All Groq keys exhausted (401/quota) → err_ai_down
+- Whisper rate-limited → err_ai_busy
 - Groq server error → err_ai_down
 """
 
@@ -18,12 +20,17 @@ import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from src.services.groq_service import groq_service, GroqQueueError, GroqServerError
+from src.services.groq_service import (
+    groq_service, GroqQueueError, GroqServerError,
+    WhisperInvalidAudioError, WhisperAllKeysExhaustedError,
+)
 from src.handlers.message_handler import handle_transaction_text
 from src.states import RegistrationStates
 from src.database import get_user
 from src.services.i18n import t
 from src.services.error_handler import log_error, ErrorType
+
+WHISPER_MAX_FILE_SIZE = 25 * 1024 * 1024  # Groq Whisper API limit: 25MB
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -51,18 +58,26 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
 
     # ── Check voice duration ──
     duration = message.voice.duration or 0
+    file_size = message.voice.file_size or 0
+    file_id = message.voice.file_id
+    logger.info(f"Voice received: user={user_id}, file_id={file_id}, duration={duration}s, size={file_size}b")
+
     if duration < 1:  # Less than 1 second (~0.5s rounded)
         log_error(ErrorType.VOICE_TOO_SHORT, f"Voice too short: {duration}s", user_id)
         await status_msg.edit_text("🎤 Ovoz juda qisqa, qaytadan yuboring")
         return
-        
+
     if duration > 120:
         log_error(ErrorType.VOICE_TOO_SHORT, f"Voice too long: {duration}s", user_id)
         await status_msg.edit_text("🎤 Ovoz juda uzun.\nIltimos qisqaroq yuboring")
         return
 
+    if file_size and file_size > WHISPER_MAX_FILE_SIZE:
+        log_error(ErrorType.VOICE_WHISPER_FAIL, f"Voice file too large: {file_size}b", user_id)
+        await status_msg.edit_text("🎤 Ovoz fayli juda katta (25MB dan oshmasin). Qisqaroq yuboring.")
+        return
+
     # ── Download voice file ──
-    file_id = message.voice.file_id
     os.makedirs("temp", exist_ok=True)
     local_path = f"temp/{file_id}.ogg"
 
@@ -75,10 +90,24 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         await status_msg.edit_text(t(lang, "err_voice_download"))
         return
 
+    # ── Verify file actually downloaded ──
+    if not os.path.exists(local_path) or os.path.getsize(local_path) == 0:
+        log_error(ErrorType.VOICE_DOWNLOAD, f"Downloaded file missing or empty: {local_path}", user_id)
+        await status_msg.edit_text(t(lang, "err_voice_download"))
+        return
+
     try:
         # ── Whisper transcription ──
         try:
             transcribed_text = await groq_service.transcribe_audio_with_retry(local_path)
+        except WhisperAllKeysExhaustedError as e:
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"All keys exhausted for Whisper", user_id, e)
+            await status_msg.edit_text(t(lang, "err_ai_down"))
+            return
+        except WhisperInvalidAudioError as e:
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Whisper", user_id, e)
+            await status_msg.edit_text("🎤 Ovoz formati noto'g'ri yoki buzilgan. Iltimos qayta yuboring.")
+            return
         except GroqQueueError:
             await status_msg.edit_text(t(lang, "err_ai_busy"))
             return
@@ -86,32 +115,42 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
             await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except Exception as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Whisper failed", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Whisper unexpected failure", user_id, e)
             await status_msg.edit_text(t(lang, "err_voice_whisper"))
             return
 
         # ── Check if transcription is empty/too short ──
         if not transcribed_text or len(transcribed_text.strip()) < 2:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Empty transcription result", user_id)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Empty transcription result (size={os.path.getsize(local_path)}b)", user_id)
             await status_msg.edit_text(t(lang, "err_voice_whisper"))
             return
-            
+
         # ── Merge with Caption ──
         if message.caption:
             transcribed_text = f"{transcribed_text}. Qo'shimcha izoh: {message.caption}"
 
         # ── Delete status message and process ──
-        await status_msg.delete()
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
 
         # Tranzaksiya pipeline'ga yuborish
         await handle_transaction_text(message, transcribed_text, state)
 
     except Exception as e:
-        log_error(ErrorType.UNKNOWN, f"Voice processing error", user_id, e)
+        # This catches errors from handle_transaction_text or status_msg ops
+        log_error(ErrorType.UNKNOWN, f"Voice post-transcription error", user_id, e)
         try:
-            await status_msg.edit_text(t(lang, "err_general"))
+            await status_msg.edit_text(t(lang, "err_voice_whisper"))
         except Exception:
-            pass
+            try:
+                await message.answer(t(lang, "err_voice_whisper"))
+            except Exception:
+                pass
     finally:
         if os.path.exists(local_path):
-            os.remove(local_path)
+            try:
+                os.remove(local_path)
+            except Exception:
+                pass

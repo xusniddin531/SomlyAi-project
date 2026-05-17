@@ -10,6 +10,25 @@ import QuickActions from '../components/QuickActions';
 import SmartWidgets from '../components/SmartWidgets';
 import TransactionModal from '../components/TransactionModal';
 
+/* ─── splitCategory: ajratadi kategoriya nomidagi emoji va matnni ───
+ * "🍔 Oziq-ovqat" → { emoji: "🍔", name: "Oziq-ovqat" }
+ * "Ish haqi"      → { emoji: "📦", name: "Ish haqi" }  (emoji yo'q → default)
+ */
+const EMOJI_PATTERN = /^(\p{Extended_Pictographic}(?:️)?(?:‍\p{Extended_Pictographic}(?:️)?)*)/u;
+const splitCategory = (category) => {
+  if (!category || typeof category !== 'string') {
+    return { emoji: '📦', name: category || '' };
+  }
+  const trimmed = category.trim();
+  const match = trimmed.match(EMOJI_PATTERN);
+  if (match) {
+    const emoji = match[1];
+    const name = trimmed.slice(match[0].length).trim();
+    return { emoji, name: name || trimmed };
+  }
+  return { emoji: '📦', name: trimmed };
+};
+
 /* ─── AnimatedNumber: fade-out old → fade-in new with green dot ─── */
 const AnimatedNumber = ({ value, suffix = '', style = {} }) => {
   const [display, setDisplay] = useState(value);
@@ -465,7 +484,7 @@ const DashboardPage = ({ initData }) => {
       <div className="card" style={{ padding: '20px' }}>
         <div className="flex-between" style={{ marginBottom: '20px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: '600', margin: 0 }}>Bugun</h2>
-          <span onClick={() => navigate('/transactions')} style={{ color: 'var(--primary)', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>Barchasini →</span>
+          <span onClick={() => navigate('/reports')} style={{ color: 'var(--primary)', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>Barchasini →</span>
         </div>
 
         {transactions.length === 0 ? (
@@ -476,17 +495,19 @@ const DashboardPage = ({ initData }) => {
             example={<span>💬 <strong>"Taksiga 15 ming so'm"</strong></span>}
           />
         ) : (
-          transactions.slice(0, 5).map(t => (
-            <div 
-              key={t.id} 
+          transactions.slice(0, 5).map(t => {
+            const { emoji: catEmoji, name: catName } = splitCategory(t.category);
+            return (
+            <div
+              key={t.id}
               className={`tx-item flex-between ${newTxIds.has(t.id) ? 'slide-down-enter' : ''}`}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                 <div className={`tx-icon ${t.type === 'chiqim' ? 'tx-icon-expense' : 'tx-icon-income'}`}>
-                  {t.category.split(' ')[0]}
+                  {catEmoji}
                 </div>
                 <div>
-                  <p style={{ fontWeight: '600', fontSize: '15px', color: 'var(--text-primary)', margin: 0 }}>{t.category.split(' ').slice(1).join(' ')}</p>
+                  <p style={{ fontWeight: '600', fontSize: '15px', color: 'var(--text-primary)', margin: 0 }}>{catName}</p>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '4px 0 0 0' }}>
                     {t.type === 'chiqim' ? 'Chiqim' : 'Kirim'} • {t.currency || 'UZS'}
                   </p>
@@ -501,7 +522,8 @@ const DashboardPage = ({ initData }) => {
                 </p>
               </div>
             </div>
-          ))
+            );
+          })
         )}
       </div>
 
