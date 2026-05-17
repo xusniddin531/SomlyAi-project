@@ -3,15 +3,18 @@ Voice handler.
 Routes voice messages:
 - If in registration (waiting_for_name) → handled by registration_handler
 - If in registration (waiting_for_contact) → handled by registration_handler
-- Otherwise → transcribe and pass to transaction pipeline
+- Otherwise → transcribe (via Groq's Whisper model) and pass to transaction pipeline
+
+MUHIM: Transkripsiya OpenAI Whisper API orqali emas, Groq orqali bajariladi.
+Groq o'z serverlarida `whisper-large-v3-turbo` va `whisper-large-v3` modellarini host qiladi.
 
 Error handling:
 - Voice file download failure → err_voice_download
 - Voice too short (< 1s) → err_voice_too_short
 - Voice too long (> 120s) or too large (> 25MB) → specific error
-- Whisper invalid audio (bad format) → err_voice_whisper
+- Invalid audio (bad format) → err_voice_whisper
 - All Groq keys exhausted (401/quota) → err_ai_down
-- Whisper rate-limited → err_ai_busy
+- Rate-limited → err_ai_busy
 - Groq server error → err_ai_down
 """
 
@@ -30,7 +33,8 @@ from src.database import get_user
 from src.services.i18n import t
 from src.services.error_handler import log_error, ErrorType
 
-WHISPER_MAX_FILE_SIZE = 25 * 1024 * 1024  # Groq Whisper API limit: 25MB
+GROQ_AUDIO_MAX_FILE_SIZE = 25 * 1024 * 1024  # Groq audio endpoint limit: 25MB
+WHISPER_MAX_FILE_SIZE = GROQ_AUDIO_MAX_FILE_SIZE  # backward-compat alias
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -97,15 +101,15 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         return
 
     try:
-        # ── Whisper transcription ──
+        # ── Groq Whisper transcription (Groq SDK orqali, OpenAI emas) ──
         try:
             transcribed_text = await groq_service.transcribe_audio_with_retry(local_path)
         except WhisperAllKeysExhaustedError as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"All keys exhausted for Whisper", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"All Groq keys exhausted for audio", user_id, e)
             await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except WhisperInvalidAudioError as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Whisper", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Groq Whisper", user_id, e)
             await status_msg.edit_text("🎤 Ovoz formati noto'g'ri yoki buzilgan. Iltimos qayta yuboring.")
             return
         except GroqQueueError:
@@ -115,7 +119,7 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
             await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except Exception as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Whisper unexpected failure", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Groq Whisper unexpected failure", user_id, e)
             await status_msg.edit_text(t(lang, "err_voice_whisper"))
             return
 

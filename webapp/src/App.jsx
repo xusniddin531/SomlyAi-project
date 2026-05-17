@@ -254,33 +254,36 @@ const NavItem = ({ to, icon, label, active }) => (
 const BottomNav = () => {
   const location = useLocation();
   const { t } = useTranslation();
-  
+
+  // Telegram WebApp haptic feedback (tactile his — Apple kabi)
+  const haptic = () => {
+    try {
+      window.Telegram?.WebApp?.HapticFeedback?.selectionChanged?.();
+    } catch (e) { /* ignore */ }
+  };
+
+  const items = [
+    { to: '/',           icon: <Home  size={22} />, label: 'Bosh sahifa' },
+    { to: '/reports',    icon: <Search size={22} />, label: 'Hisobotlar' },
+    { to: '/categories', icon: <Grid  size={22} />, label: 'Kategoriya' },
+    { to: '/debts',      icon: <Tag   size={22} />, label: 'Qarzlar' },
+    { to: '/reminders',  icon: <Bell  size={22} />, label: 'Eslatmalar' },
+    { to: '/profile',    icon: <User  size={22} />, label: 'Profil' },
+  ];
+
   return (
     <div className="bottom-nav">
-      <Link to="/" className={`nav-item clickable ${location.pathname === '/' ? 'active' : ''}`}>
-        <Home size={22} />
-        <span>Bosh sahifa</span>
-      </Link>
-      <Link to="/reports" className={`nav-item clickable ${location.pathname === '/reports' ? 'active' : ''}`}>
-        <Search size={22} />
-        <span>Hisobotlar</span>
-      </Link>
-      <Link to="/categories" className={`nav-item clickable ${location.pathname === '/categories' ? 'active' : ''}`}>
-        <Grid size={22} />
-        <span>Kategoriya</span>
-      </Link>
-      <Link to="/debts" className={`nav-item clickable ${location.pathname === '/debts' ? 'active' : ''}`}>
-        <Tag size={22} />
-        <span>Qarzlar</span>
-      </Link>
-      <Link to="/reminders" className={`nav-item clickable ${location.pathname === '/reminders' ? 'active' : ''}`}>
-        <Bell size={22} />
-        <span>Eslatmalar</span>
-      </Link>
-      <Link to="/profile" className={`nav-item clickable ${location.pathname === '/profile' ? 'active' : ''}`}>
-        <User size={22} />
-        <span>Profil</span>
-      </Link>
+      {items.map(it => (
+        <Link
+          key={it.to}
+          to={it.to}
+          onClick={haptic}
+          className={`nav-item clickable ${location.pathname === it.to ? 'active' : ''}`}
+        >
+          {it.icon}
+          <span>{it.label}</span>
+        </Link>
+      ))}
     </div>
   );
 };

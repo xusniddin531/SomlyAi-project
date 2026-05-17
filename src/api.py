@@ -2333,6 +2333,260 @@ async def user_ai_chat(request):
         }, status=500))
 
 
+@routes.post('/api/chat/voice')
+async def user_ai_chat_voice(request):
+    """
+    Mini App AI Chat Widget — ovoz qabul qiladigan endpoint.
+
+    multipart/form-data:
+      - audio: audio fayli (.webm, .ogg, .mp3, .wav, .m4a)
+      - user_id: int
+      - current_page: str (ixtiyoriy)
+
+    Pipeline:
+      1. Audio faylni temp/ ga saqlaymiz
+      2. Groq orqali transcribe qilamiz (Groq SDK — `whisper-large-v3-turbo` modeli)
+         MUHIM: Bu OpenAI Whisper API EMAS — barcha so'rovlar Groq serverlariga boradi.
+      3. Transcribed text'ni xuddi /api/chat kabi pipeline'ga uzatamiz
+      4. Javobni qaytaramiz, fayl asinxron o'chiriladi
+
+    Response: {
+      transcript: str,    # ovozdan o'qilgan matn
+      reply: str,         # AI javobi
+      actions: [...],     # mini app harakatlar
+      intent: str
+    }
+    """
+    from src.services.groq_service import (
+        groq_service, GroqQueueError,
+        WhisperInvalidAudioError, WhisperAllKeysExhaustedError,
+    )
+    import uuid
+
+    local_path = None
+    try:
+        reader = await request.multipart()
+
+        user_id = 0
+        current_page = "/"
+        audio_bytes = None
+        audio_filename = "voice.webm"
+
+        async for part in reader:
+            if part.name == 'audio':
+                audio_filename = part.filename or 'voice.webm'
+                audio_bytes = await part.read(decode=False)
+            elif part.name == 'user_id':
+                try:
+                    user_id = int(await part.text())
+                except (ValueError, TypeError):
+                    user_id = 0
+            elif part.name == 'current_page':
+                current_page = (await part.text()) or "/"
+
+        if not user_id or not audio_bytes:
+            return set_cors(web.json_response({"error": "user_id va audio majburiy"}, status=400))
+
+        # Fayl o'lchami chegarasi: 25MB (Groq Whisper limit)
+        if len(audio_bytes) > 25 * 1024 * 1024:
+            return set_cors(web.json_response({
+                "transcript": "",
+                "reply": "🎤 Ovoz fayli juda katta (25MB dan oshmasin). Qisqaroq yozing.",
+                "actions": [],
+                "intent": "error"
+            }, status=400))
+
+        if len(audio_bytes) < 1024:
+            return set_cors(web.json_response({
+                "transcript": "",
+                "reply": "🎤 Ovoz juda qisqa. Aniqroq gapiring.",
+                "actions": [],
+                "intent": "error"
+            }, status=400))
+
+        # Faylni temp ga saqlaymiz — Whisper API faylga ehtiyoj
+        os.makedirs("temp", exist_ok=True)
+        # Asl extensionni saqlaymiz (.webm/.ogg/.mp3...) — Groq format'ni shu orqali aniqlaydi
+        ext = audio_filename.rsplit('.', 1)[-1].lower() if '.' in audio_filename else 'webm'
+        if ext not in ('webm', 'ogg', 'mp3', 'wav', 'm4a', 'flac', 'mp4'):
+            ext = 'webm'
+        local_path = f"temp/{uuid.uuid4().hex}.{ext}"
+        with open(local_path, 'wb') as f:
+            f.write(audio_bytes)
+
+        # ── Whisper transcription ──
+        try:
+            transcript = await groq_service.transcribe_audio_with_retry(local_path)
+        except WhisperInvalidAudioError:
+            return set_cors(web.json_response({
+                "transcript": "",
+                "reply": "🎤 Ovoz formati noto'g'ri. Qayta yozib ko'ring.",
+                "actions": [],
+                "intent": "error"
+            }, status=400))
+        except WhisperAllKeysExhaustedError:
+            return set_cors(web.json_response({
+                "transcript": "",
+                "reply": "😔 AI hozir ishlamayapti. Keyinroq urinib ko'ring.",
+                "actions": [],
+                "intent": "error"
+            }, status=503))
+        except GroqQueueError:
+            return set_cors(web.json_response({
+                "transcript": "",
+                "reply": "⏳ Bir oz band, qayta urinib ko'ring.",
+                "actions": [],
+                "intent": "busy"
+            }, status=429))
+
+        if not transcript or len(transcript.strip()) < 2:
+            return set_cors(web.json_response({
+                "transcript": "",
+                "reply": "🎤 Ovozni tushunmadim. Aniqroq qayta yozib ko'ring.",
+                "actions": [],
+                "intent": "error"
+            }, status=400))
+
+        # ── Transcribed text'ni xuddi /api/chat'dagi pipeline'ga uzatamiz ──
+        # Tashqi POST yo'q — to'g'ridan-to'g'ri ichki funksiyani chaqirilmaydi
+        # chunki o'sha funksiya request obyektiga bog'liq. Eng oson — Fake request bilan.
+        # Buning o'rniga: shu funksiya ichida chat oqimini takrorlaymiz.
+        from src.database import (
+            get_user, get_user_financial_context, get_recent_transactions_context,
+            get_user_habits, get_user_all_balance_names, get_custom_categories,
+            get_chat_history, save_chat_message, get_report_context,
+            get_financial_advice_context,
+        )
+
+        user = await get_user(user_id) or {}
+        language = user.get("language", "uz")
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        custom_cats, user_context, recent_txs, habits, all_balance_names, chat_history = await asyncio.gather(
+            get_custom_categories(user_id),
+            get_user_financial_context(user_id),
+            get_recent_transactions_context(user_id),
+            get_user_habits(user_id),
+            get_user_all_balance_names(user_id),
+            get_chat_history(user_id),
+        )
+        custom_cats_list = [
+            {"emoji": c["emoji"], "name": c["name"], "type": c["type"]}
+            for c in custom_cats
+        ] if custom_cats else None
+
+        # User'ning ovoz xabarini chat tarixiga "[🎤 ...]" prefix bilan saqlaymiz
+        asyncio.create_task(save_chat_message(user_id, "user", f"🎤 {transcript}"))
+
+        page_context = f"\nFOYDALANUVCHI HOZIR SAHIFADA: {current_page}\nMINI APP ICHIDA — sahifa o'zgartirish so'rovi bo'lsa 'navigate' action ber.\n"
+
+        try:
+            parsed = await groq_service.parse_transaction(
+                text=transcript,
+                current_date_str=current_date,
+                language=language,
+                custom_categories=custom_cats_list,
+                user_id=user_id,
+                user_context=user_context,
+                recent_txs=(recent_txs or "") + page_context,
+                habits=habits,
+                all_balances=all_balance_names,
+                chat_history=chat_history,
+            )
+        except GroqQueueError:
+            return set_cors(web.json_response({
+                "transcript": transcript,
+                "reply": "⏳ Bot hozir band, bir necha soniyadan keyin urinib ko'ring.",
+                "actions": [],
+                "intent": "busy"
+            }))
+
+        intent = parsed.get("intent", "chat")
+        reply = parsed.get("chat_response") or parsed.get("reply") or ""
+
+        raw_actions = parsed.get("mini_app_actions") or []
+        actions = []
+        allowed_action_types = {"navigate", "change_language", "change_theme", "open_modal", "refresh_data"}
+        for a in raw_actions:
+            if isinstance(a, dict) and a.get("type") in allowed_action_types:
+                actions.append(a)
+
+        # report / advice / finance — xuddi /api/chat kabi
+        if intent == "report":
+            try:
+                ctx = await get_report_context(user_id)
+                reply = await groq_service.generate_report_response(
+                    parsed.get("report_query") or transcript, ctx, language, parsed.get("user_segment")
+                )
+            except Exception as e:
+                logger.warning(f"/api/chat/voice report fallback: {e}")
+                if not reply:
+                    reply = "Hozir hisobot tayyorlay olmadim."
+        elif intent == "advice":
+            try:
+                ctx = await get_financial_advice_context(user_id, "UZS")
+                reply = await groq_service.generate_smart_financial_advice(
+                    user_context=user, financial_data=ctx, trigger_type="user_requested", language=language
+                )
+            except Exception as e:
+                logger.warning(f"/api/chat/voice advice fallback: {e}")
+                if not reply:
+                    reply = "💡 Hozir maslahat tayyorlay olmadim."
+        elif intent == "finance":
+            transactions = parsed.get("transactions") or []
+            if transactions:
+                from src.handlers.message_handler import process_extracted_transactions
+                class _FakeMsg:
+                    def __init__(self, uid):
+                        self.from_user = type('U', (), {'id': uid})()
+                    async def answer(self, *a, **k): pass
+                try:
+                    await process_extracted_transactions(
+                        _FakeMsg(user_id), transactions, user_id, language, current_date,
+                        custom_cats=custom_cats, ai_reply=None, habits=habits, state=None, tip=None
+                    )
+                    actions.append({"type": "refresh_data"})
+                    if not reply:
+                        reply = "✅ Saqlandi"
+                    invalidate_user_cache(user_id)
+                except Exception as e:
+                    logger.error(f"/api/chat/voice finance save error: {e}")
+                    reply = "❌ Saqlashda xatolik."
+
+        if not reply:
+            reply = "Tushundim. Yana savolingiz bormi?"
+
+        asyncio.create_task(save_chat_message(user_id, "assistant", reply))
+
+        return set_cors(web.json_response({
+            "transcript": transcript,
+            "reply": reply,
+            "actions": actions,
+            "intent": intent,
+        }))
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        log_error(ErrorType.UNKNOWN, f"/api/chat/voice error: {e}", exception=e)
+        return set_cors(web.json_response({
+            "transcript": "",
+            "reply": "⚠️ Ovoz qayta ishlanmadi. Keyinroq urinib ko'ring.",
+            "actions": [],
+            "intent": "error"
+        }, status=500))
+    finally:
+        # Faylni asinxron o'chiramiz
+        if local_path:
+            async def _cleanup():
+                try:
+                    if os.path.exists(local_path):
+                        os.remove(local_path)
+                except Exception:
+                    pass
+            asyncio.create_task(_cleanup())
+
+
 # ─── REFERRAL ENDPOINTS ───
 
 @routes.get('/api/referrals')

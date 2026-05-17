@@ -2,11 +2,19 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { MessageCircle, X, Send, Mic, Loader2 } from 'lucide-react';
+import { MessageCircle, X, Send, Mic, MicOff, Loader2 } from 'lucide-react';
 import { fetchApi, getUserId } from '../utils/api';
 
-// Bot username /api/config dan dinamik olinadi (init paytida)
-let CACHED_BOT_LINK = 'https://t.me/somly_ai_bot'; // fallback
+// Voice upload uchun (multipart) — fetchApi JSON bilan bog'liq, shuning uchun fetch ishlatamiz
+const API_BASE_URL = '/api';
+
+// Format timer mm:ss
+const fmtTimer = (ms) => {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return `${m}:${ss}`;
+};
 
 /* ─── ChatWidget: o'ng past burchakdagi suzuvchi AI yordamchi ───
  * - Bossam bottom sheet chat ochiladi
@@ -25,22 +33,20 @@ const ChatWidget = () => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [botLink, setBotLink] = useState(CACHED_BOT_LINK);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
 
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordMs, setRecordMs] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordStreamRef = useRef(null);
+  const recordTimerRef = useRef(null);
+  const recordStartTsRef = useRef(0);
+
   // Pulse animation flag (yangi xabar bo'lganda diqqat tortish uchun)
   const [hasUnread, setHasUnread] = useState(false);
-
-  // Init: bot username'ni API'dan oling (faqat 1 marta)
-  useEffect(() => {
-    fetchApi('/config').then(cfg => {
-      if (cfg && cfg.bot_link) {
-        CACHED_BOT_LINK = cfg.bot_link;
-        setBotLink(cfg.bot_link);
-      }
-    }).catch(() => {});
-  }, []);
 
   useEffect(() => {
     // Auto-scroll to bottom on new messages
@@ -134,32 +140,205 @@ const ChatWidget = () => {
     }
   };
 
-  // Voice tugmasi: Telegram WebApp orqali bot'ga yo'naltirish
-  const openBotForVoice = () => {
-    const tg = window.Telegram?.WebApp;
-    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+  // ── Voice cleanup helper ──
+  const cleanupRecording = useCallback(() => {
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+    if (recordStreamRef.current) {
+      recordStreamRef.current.getTracks().forEach(t => t.stop());
+      recordStreamRef.current = null;
+    }
+    mediaRecorderRef.current = null;
+    audioChunksRef.current = [];
+  }, []);
 
-    if (tg?.showPopup) {
-      tg.showPopup({
-        title: '🎤 Ovoz yuborish',
-        message: "Bot chatiga o'ting va mikrofon tugmasini bosib ovoz yuboring. Men o'qib, ma'lumotlarni saqlayman.",
-        buttons: [
-          { id: 'open', type: 'default', text: "Bot chatini ochish" },
-          { id: 'cancel', type: 'cancel' }
-        ]
-      }, (btnId) => {
-        if (btnId === 'open') {
-          if (tg.openTelegramLink) {
-            tg.openTelegramLink(botLink);
-          } else if (tg.close) {
-            tg.close();
-          }
+  // ── Voice yozishni boshlash ──
+  const startRecording = async () => {
+    const tg = window.Telegram?.WebApp;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: "🎤 Bu qurilmada ovoz yozish mavjud emas. Matn yozib yuboring."
+      }]);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      recordStreamRef.current = stream;
+
+      // Eng yaxshi mavjud mimetype'ni tanlaymiz
+      const mimes = [
+        'audio/webm;codecs=opus',
+        'audio/webm',
+        'audio/ogg;codecs=opus',
+        'audio/ogg',
+        'audio/mp4',
+      ];
+      let chosenMime = '';
+      for (const m of mimes) {
+        if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(m)) {
+          chosenMime = m;
+          break;
         }
-      });
-    } else {
-      window.open(botLink, '_blank');
+      }
+
+      const recorder = chosenMime
+        ? new MediaRecorder(stream, { mimeType: chosenMime })
+        : new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = async () => {
+        const chunks = audioChunksRef.current;
+        const mime = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(chunks, { type: mime });
+        cleanupRecording();
+        setIsRecording(false);
+        setRecordMs(0);
+
+        // Juda qisqa (< 0.5s) — yubormaymiz
+        if (blob.size < 1024) {
+          setMessages(prev => [...prev, {
+            role: 'assistant',
+            text: "🎤 Ovoz juda qisqa. Mikrofonni 1+ soniya ushlab turib gapiring."
+          }]);
+          return;
+        }
+
+        await sendVoice(blob, mime);
+      };
+
+      recordStartTsRef.current = Date.now();
+      setRecordMs(0);
+      recordTimerRef.current = setInterval(() => {
+        const elapsed = Date.now() - recordStartTsRef.current;
+        setRecordMs(elapsed);
+        // Auto-stop at 60 seconds
+        if (elapsed >= 60_000) {
+          stopRecording();
+        }
+      }, 100);
+
+      recorder.start(250); // collect chunks every 250ms
+      setIsRecording(true);
+    } catch (err) {
+      console.error('Mic access denied or failed:', err);
+      let msg = "🎤 Mikrofonga ruxsat berilmadi.";
+      if (err && err.name === 'NotAllowedError') {
+        msg = "🎤 Mikrofonga ruxsat bering — Telegram sozlamalarida ruxsatni yoqing.";
+      } else if (err && err.name === 'NotFoundError') {
+        msg = "🎤 Qurilmangizda mikrofon topilmadi.";
+      }
+      setMessages(prev => [...prev, { role: 'assistant', text: msg }]);
+      cleanupRecording();
+      setIsRecording(false);
     }
   };
+
+  // ── Voice yozishni to'xtatish ──
+  const stopRecording = () => {
+    const tg = window.Telegram?.WebApp;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred('light');
+    try {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      } else {
+        cleanupRecording();
+        setIsRecording(false);
+        setRecordMs(0);
+      }
+    } catch (e) {
+      console.error('stopRecording error:', e);
+      cleanupRecording();
+      setIsRecording(false);
+      setRecordMs(0);
+    }
+  };
+
+  // ── Voice yozishni bekor qilish (yuborishsiz) ──
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current) {
+      mediaRecorderRef.current.onstop = () => {}; // bekor — sendVoice chaqirilmasin
+      try { mediaRecorderRef.current.stop(); } catch (e) {}
+    }
+    cleanupRecording();
+    setIsRecording(false);
+    setRecordMs(0);
+  };
+
+  // ── Voice blob'ni backend'ga yuborish ──
+  const sendVoice = async (blob, mime) => {
+    const ext = mime.includes('webm') ? 'webm'
+              : mime.includes('ogg')  ? 'ogg'
+              : mime.includes('mp4')  ? 'm4a'
+              : 'webm';
+    const fileName = `voice.${ext}`;
+
+    // Placeholder xabar — "🎤 Ovoz tahlil qilinmoqda..."
+    setMessages(prev => [...prev, { role: 'user', text: '🎤 Ovoz xabar...' }]);
+    setLoading(true);
+
+    try {
+      const form = new FormData();
+      form.append('audio', blob, fileName);
+      form.append('user_id', String(getUserId()));
+      form.append('current_page', location.pathname);
+
+      const resp = await fetch(`${API_BASE_URL}/chat/voice`, {
+        method: 'POST',
+        body: form,
+        // NOTE: Content-Type'ni o'rnatmaymiz — brauzer o'zi boundary bilan o'rnatadi
+      });
+
+      let data = null;
+      try { data = await resp.json(); } catch (e) { data = null; }
+
+      const transcript = data?.transcript || '';
+      const reply = data?.reply || (resp.ok ? "Tushundim." : "⚠️ Ovoz qabul bo'lmadi.");
+
+      // Oxirgi placeholder'ni transcribed text bilan almashtiramiz, keyin AI javobini qo'shamiz
+      setMessages(prev => {
+        const next = [...prev];
+        // oxirgi user xabar — placeholder
+        for (let i = next.length - 1; i >= 0; i--) {
+          if (next[i].role === 'user' && next[i].text === '🎤 Ovoz xabar...') {
+            next[i] = { role: 'user', text: transcript ? `🎤 ${transcript}` : '🎤 Ovoz xabar' };
+            break;
+          }
+        }
+        next.push({ role: 'assistant', text: reply });
+        return next;
+      });
+
+      // Actions bajaramiz
+      const actions = Array.isArray(data?.actions) ? data.actions : [];
+      actions.forEach(executeAction);
+
+      if (!isOpen) setHasUnread(true);
+    } catch (err) {
+      console.error('sendVoice error:', err);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: "⚠️ Ovoz yuborib bo'lmadi. Internet aloqasini tekshiring."
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Component unmount paytida ham tozalash
+  useEffect(() => {
+    return () => cleanupRecording();
+  }, [cleanupRecording]);
 
   const handleOpen = () => {
     setIsOpen(true);
@@ -305,6 +484,7 @@ const ChatWidget = () => {
               {messages.map((m, i) => (
                 <div
                   key={i}
+                  className="chat-message-bubble"
                   style={{
                     alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
                     maxWidth: '85%',
@@ -318,6 +498,7 @@ const ChatWidget = () => {
                     lineHeight: '1.45',
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-word',
+                    boxShadow: m.role === 'user' ? '0 4px 12px rgba(10,132,255,0.25)' : '0 2px 6px rgba(0,0,0,0.08)',
                   }}
                 >
                   {m.text}
@@ -352,73 +533,155 @@ const ChatWidget = () => {
               flexShrink: 0,
               background: 'var(--card-solid, var(--card))',
             }}>
-              <button
-                onClick={openBotForVoice}
-                aria-label="Ovoz yuborish"
-                title="Bot orqali ovoz yuborish"
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  minWidth: '40px',
-                  borderRadius: '50%',
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  color: 'var(--primary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                }}
-              >
-                <Mic size={18} />
-              </button>
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
-                placeholder="Savol yozing..."
-                disabled={loading}
-                style={{
-                  flex: 1,
-                  background: 'var(--bg)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '20px',
-                  padding: '10px 16px',
-                  color: 'var(--text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                }}
-              />
-              <button
-                onClick={() => sendMessage()}
-                disabled={!input.trim() || loading}
-                aria-label="Yuborish"
-                style={{
-                  width: '40px',
-                  height: '40px',
-                  minWidth: '40px',
-                  borderRadius: '50%',
-                  background: (input.trim() && !loading)
-                    ? 'linear-gradient(135deg, #0A84FF 0%, #5E5CE6 100%)'
-                    : 'var(--border)',
-                  border: 'none',
-                  color: '#FFF',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: (input.trim() && !loading) ? 'pointer' : 'not-allowed',
-                  opacity: (input.trim() && !loading) ? 1 : 0.6,
-                  transition: 'opacity 0.2s',
-                }}
-              >
-                <Send size={16} />
-              </button>
+              {isRecording ? (
+                <>
+                  <button
+                    onClick={cancelRecording}
+                    aria-label="Bekor qilish"
+                    title="Bekor qilish"
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      minWidth: '40px',
+                      borderRadius: '50%',
+                      background: 'var(--bg)',
+                      border: '1px solid var(--border)',
+                      color: 'var(--text-secondary)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <X size={18} />
+                  </button>
+                  <div style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    background: 'rgba(255, 69, 58, 0.1)',
+                    border: '1px solid rgba(255, 69, 58, 0.3)',
+                    borderRadius: '20px',
+                    padding: '10px 16px',
+                  }}>
+                    <span style={{
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      background: '#FF453A',
+                      animation: 'sendPulse 1.2s ease-in-out infinite',
+                    }} />
+                    <span style={{
+                      flex: 1,
+                      fontSize: '13px',
+                      color: 'var(--text-primary)',
+                      fontWeight: 600,
+                      fontVariantNumeric: 'tabular-nums',
+                    }}>
+                      Yozilmoqda... {fmtTimer(recordMs)}
+                    </span>
+                  </div>
+                  <button
+                    onClick={stopRecording}
+                    aria-label="Yuborish"
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      minWidth: '40px',
+                      borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #0A84FF 0%, #5E5CE6 100%)',
+                      border: 'none',
+                      color: '#FFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      boxShadow: '0 4px 12px rgba(10, 132, 255, 0.4)',
+                    }}
+                  >
+                    <Send size={16} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={startRecording}
+                  disabled={loading}
+                  aria-label="Ovoz yozish"
+                  title="Bosing va gapiring"
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    minWidth: '40px',
+                    borderRadius: '50%',
+                    background: 'var(--bg)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--primary)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                    opacity: loading ? 0.5 : 1,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <Mic size={18} />
+                </button>
+              )}
+              {!isRecording && (
+                <>
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                      }
+                    }}
+                    placeholder="Savol yozing..."
+                    disabled={loading}
+                    className="apple-input"
+                    style={{
+                      flex: 1,
+                      background: 'var(--bg)',
+                      border: '1px solid var(--border)',
+                      borderRadius: '20px',
+                      padding: '10px 16px',
+                      color: 'var(--text-primary)',
+                      fontSize: '14px',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    onClick={() => sendMessage()}
+                    disabled={!input.trim() || loading}
+                    aria-label="Yuborish"
+                    className={input.trim() && !loading ? 'chat-send-active' : ''}
+                    style={{
+                      width: '40px',
+                      height: '40px',
+                      minWidth: '40px',
+                      borderRadius: '50%',
+                      background: (input.trim() && !loading)
+                        ? 'linear-gradient(135deg, #0A84FF 0%, #5E5CE6 100%)'
+                        : 'var(--border)',
+                      border: 'none',
+                      color: '#FFF',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: (input.trim() && !loading) ? 'pointer' : 'not-allowed',
+                      opacity: (input.trim() && !loading) ? 1 : 0.6,
+                      transition: 'opacity 0.2s, transform 0.15s',
+                    }}
+                  >
+                    <Send size={16} />
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

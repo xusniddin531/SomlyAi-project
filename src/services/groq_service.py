@@ -62,12 +62,19 @@ class GroqServerError(Exception):
 
 
 class WhisperInvalidAudioError(Exception):
-    """Audio file rejected by Whisper (bad format, too large, corrupted)."""
+    """
+    Audio file rejected by Groq's Whisper model (bad format, too large, corrupted).
+    NOTE: Transkripsiya OpenAI Whisper API orqali emas, Groq orqali bajariladi.
+    Groq o'z serverlarida `whisper-large-v3` va `whisper-large-v3-turbo` modellarini host qiladi.
+    """
     pass
 
 
 class WhisperAllKeysExhaustedError(Exception):
-    """All API keys returned 401/quota for Whisper — none can transcribe."""
+    """
+    All Groq API keys returned 401/quota — none can transcribe audio.
+    Bu OpenAI bilan bog'liq emas — barcha kalitlar Groq kalitlari.
+    """
     pass
 
 
@@ -266,18 +273,27 @@ class GroqService:
 
     async def transcribe_audio_with_retry(self, file_path: str) -> str:
         """
-        Transcribe audio via Groq Whisper API with full key rotation + model fallback.
+        Audio faylni Groq orqali transkribe qiladi.
+
+        MUHIM: Bu OpenAI Whisper API emas — Groq'ning audio endpointidan foydalanamiz.
+        - SDK: `AsyncGroq` (groq paketi), `ks.client.audio.transcriptions.create(...)`
+        - Server: api.groq.com (NOT api.openai.com)
+        - Modellar: `whisper-large-v3-turbo` va `whisper-large-v3` — Groq'da host qilingan
+        - Autentifikatsiya: GROQ_API_KEYS (`.env`)
+
+        Key rotation + model fallback bilan ishlaydi.
 
         Raises:
-            WhisperInvalidAudioError: file rejected (bad format, too large, corrupted)
-            WhisperAllKeysExhaustedError: all keys returned 401/quota
-            GroqServerError: Groq returned 500+
-            GroqQueueError: keys cooling, request should be queued
+            WhisperInvalidAudioError: fayl rad etildi (format/o'lcham/buzilgan)
+            WhisperAllKeysExhaustedError: barcha Groq kalitlar 401/quota
+            GroqServerError: Groq 500+ qaytardi
+            GroqQueueError: kalitlar sovuyapti, so'rov navbatga qo'yilishi kerak
         """
         file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
         fname = os.path.basename(file_path)
-        logger.info(f"Whisper start: file={fname}, size={file_size} bytes")
+        logger.info(f"Groq Whisper start: file={fname}, size={file_size} bytes")
 
+        # Groq tomonidan host qilingan Whisper modellari (turbo birinchi — 2x tezroq)
         models_to_try = ["whisper-large-v3-turbo", "whisper-large-v3"]
         # Try each key with each model: 2 models × N keys attempts
         max_retries = len(self.keys_stats) * len(models_to_try)
@@ -309,12 +325,12 @@ class GroqService:
                 ks.requests_count += 1
                 ks.connection_errors = 0
                 text = transcription.text or ""
-                logger.info(f"Whisper success (model={model}, key={ks.index+1}, size={file_size}): {text[:80]}...")
+                logger.info(f"Groq Whisper success (model={model}, key={ks.index+1}, size={file_size}): {text[:80]}...")
                 return text
             except APIStatusError as e:
                 status_code = getattr(e, 'status_code', 0)
                 error_str = str(e)
-                logger.error(f"Whisper error (key={ks.index+1}, model={model}, status={status_code}, size={file_size}): {error_str[:200]}")
+                logger.error(f"Groq Whisper error (key={ks.index+1}, model={model}, status={status_code}, size={file_size}): {error_str[:200]}")
 
                 if status_code == 429 or "rate" in error_str.lower() or status_code == 403:
                     ks.status = "cooling"
@@ -336,24 +352,24 @@ class GroqService:
                     invalid_audio_count += 1
                     if invalid_audio_count >= 2:
                         # Confirmed across 2 attempts → it's the file, not the key
-                        raise WhisperInvalidAudioError(f"Audio rejected by Whisper: status={status_code}, {error_str[:120]}")
+                        raise WhisperInvalidAudioError(f"Audio rejected by Groq Whisper: status={status_code}, {error_str[:120]}")
                 elif status_code >= 500:
                     raise GroqServerError(f"Groq server error: {status_code}")
                 else:
                     # Unknown status — log loudly, try next attempt
-                    logger.warning(f"Whisper unknown status {status_code} on key {ks.index+1}, will retry")
+                    logger.warning(f"Groq Whisper unknown status {status_code} on key {ks.index+1}, will retry")
             except (APITimeoutError, APIConnectionError) as e:
-                logger.error(f"Whisper connection error (key={ks.index+1}): {str(e)[:150]}")
+                logger.error(f"Groq Whisper connection error (key={ks.index+1}): {str(e)[:150]}")
                 ks.connection_errors += 1
                 if ks.connection_errors >= 3:
                     ks.status = "cooling"
                     ks.last_error_time = time.time()
             except FileNotFoundError:
-                logger.error(f"Whisper: audio file not found: {file_path}")
+                logger.error(f"Groq Whisper: audio file not found: {file_path}")
                 raise WhisperInvalidAudioError(f"Audio file missing: {file_path}")
             except Exception as e:
                 # Unexpected — log and try next attempt
-                logger.error(f"Whisper unexpected error (key={ks.index+1}, model={model}): {type(e).__name__}: {str(e)[:150]}")
+                logger.error(f"Groq Whisper unexpected error (key={ks.index+1}, model={model}): {type(e).__name__}: {str(e)[:150]}")
 
             attempts += 1
 
