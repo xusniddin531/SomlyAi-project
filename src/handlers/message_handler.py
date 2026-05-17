@@ -258,6 +258,10 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     5. Handle error intents & chat
     6. Save & respond with formatted message
     """
+    # ── Defensive lokal binding (UnboundLocalError oldini olish) ──
+    from src.services.groq_service import groq_service as _gs
+    groq_service = _gs
+
     user_id = message.from_user.id
     current_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -337,6 +341,10 @@ async def handle_queued_transaction(
     Max ~15s total: 3 attempts × 5s. Foydalanuvchini cheksiz kutkazmaymiz.
     Status xabar har urinishda yangilanadi.
     """
+    # ── Defensive lokal binding ──
+    from src.services.groq_service import groq_service as _gs
+    groq_service = _gs
+
     MAX_ATTEMPTS = 3
     RETRY_DELAY = 5  # 30s → 5s: kalitlar cooling 60s, lekin har 5s da yangisini probe qilamiz
 
@@ -400,6 +408,14 @@ async def handle_queued_transaction(
 
     await process_parsed_data(data, message, user_id, language, current_date, custom_cats_list, state, habits)
 async def process_parsed_data(data: dict, message: Message, user_id: int, language: str, current_date: str, custom_cats: list, state: FSMContext, habits: dict = None):
+    # ── Defensive: lokal binding ──
+    # Python scoping zaifligi: agar funksiya ichida BIROR JOYDA `groq_service = ...`
+    # yoki `from src.services.groq_service import groq_service` bo'lsa,
+    # butun funksiyada top-level import "ko'rinmas" bo'lib qoladi va
+    # UnboundLocalError keladi. Shuning uchun shu yerda MAJBURIY rebind qilamiz.
+    from src.services.groq_service import groq_service as _gs
+    groq_service = _gs
+
     intent = data.get("intent")
 
     # ─── 4. General Reminders ───
@@ -625,6 +641,10 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
     await process_extracted_transactions(message, transactions, user_id, language, current_date, custom_cats, ai_reply, habits, state, tip)
 
 async def enhance_category_with_ai(description: str, original_category: str, personal_cats: list, user_id: int, tx_type: str = "chiqim") -> tuple:
+    # ── Defensive lokal binding ──
+    from src.services.groq_service import groq_service as _gs
+    groq_service = _gs
+
     """
     Enhance category detection using AI.
     Returns: (category, confidence)
@@ -699,6 +719,10 @@ async def enhance_category_with_ai(description: str, original_category: str, per
 
 
 async def process_extracted_transactions(message: Message, transactions: list, user_id: int, language: str, current_date: str, custom_cats: list = None, ai_reply: str = None, habits: dict = None, state: FSMContext = None, tip: str = None):
+    # ── Defensive lokal binding (UnboundLocalError oldini olish) ──
+    from src.services.groq_service import groq_service as _gs
+    groq_service = _gs
+
     if not transactions:
         await message.answer(t(language, "voice_not_understood"))
         return
