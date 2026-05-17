@@ -35,6 +35,18 @@ const QuickActions = ({ balances, onSuccess }) => {
     }
   }, [activeModal, balances]);
 
+  // ChatWidget'dan kelgan "open_modal" action'iga reaksiya
+  useEffect(() => {
+    const handleOpenModal = (e) => {
+      const modal = e?.detail;
+      if (modal && ['kirim', 'chiqim', 'qarz', 'transfer'].includes(modal)) {
+        setActiveModal(modal);
+      }
+    };
+    window.addEventListener('chat_open_modal', handleOpenModal);
+    return () => window.removeEventListener('chat_open_modal', handleOpenModal);
+  }, []);
+
   const handleAmountChange = (e) => {
     let rawVal = e.target.value.replace(/\s+/g, '');
     if (rawVal === '') {

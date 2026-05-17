@@ -19,6 +19,7 @@ import SettingsPage from './pages/Settings';
 import NotificationsPage from './pages/Notifications';
 import PrivacyPage from './pages/Privacy';
 import TermsPage from './pages/Terms';
+import ChatWidget from './components/ChatWidget';
 
 import { wsService } from './utils/websocket';
 import { fetchApi } from './utils/api';
@@ -68,6 +69,9 @@ const AppContent = ({ initData, isOffline, wasOffline, isSyncing }) => {
 
         <BottomNav />
       </div>
+
+      {/* AI Chat Widget — floating button + bottom sheet (admin sahifalarda yo'q) */}
+      <ChatWidget />
     </div>
   );
 };

@@ -2104,6 +2104,214 @@ STATISTIKA KONTEKSTI:
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
+# ═══════════════════════════════════════
+# USER-FACING AI CHAT (Mini App Widget)
+# ═══════════════════════════════════════
+
+@routes.post('/api/chat')
+async def user_ai_chat(request):
+    """
+    Mini App AI Chat Widget endpoint.
+
+    Request body:
+      { user_id: int, message: str, current_page?: str }
+
+    Response:
+      {
+        reply: str,           # AI matnli javobi (chat_response)
+        actions: [...],       # Mini App bajariladigan harakatlar
+        intent: str           # finance|report|chat|advice|...
+      }
+
+    Action turlari (frontend handler tomonidan bajariladi):
+      - {type: "navigate", to: "/balances|/debts|/categories|/reports|/settings|/profile"}
+      - {type: "change_language", code: "uz|ru|en"}
+      - {type: "change_theme", mode: "dark|light"}
+      - {type: "open_modal", modal: "kirim|chiqim|qarz"}
+      - {type: "refresh_data"}                  # Mini App'da loadData() chaqirsin
+    """
+    from src.database import (
+        get_user, get_user_financial_context, get_recent_transactions_context,
+        get_user_habits, get_user_all_balance_names, get_custom_categories,
+        get_chat_history, save_chat_message, get_report_context,
+        get_financial_advice_context,
+    )
+    from src.services.groq_service import groq_service, GroqQueueError
+
+    try:
+        data = await request.json()
+        user_id = int(data.get("user_id", 0))
+        message_text = (data.get("message") or "").strip()
+        current_page = data.get("current_page") or "/"
+
+        if not user_id or not message_text:
+            return set_cors(web.json_response({"error": "user_id va message majburiy"}, status=400))
+
+        user = await get_user(user_id) or {}
+        language = user.get("language", "uz")
+        current_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Parallel context fetch (xuddi message_handler kabi)
+        custom_cats, user_context, recent_txs, habits, all_balance_names, chat_history = await asyncio.gather(
+            get_custom_categories(user_id),
+            get_user_financial_context(user_id),
+            get_recent_transactions_context(user_id),
+            get_user_habits(user_id),
+            get_user_all_balance_names(user_id),
+            get_chat_history(user_id),
+        )
+        custom_cats_list = [
+            {"emoji": c["emoji"], "name": c["name"], "type": c["type"]}
+            for c in custom_cats
+        ] if custom_cats else None
+
+        # Fire-and-forget: foydalanuvchi xabarini chat tarixiga yozish
+        asyncio.create_task(save_chat_message(user_id, "user", message_text))
+
+        # AI ga yuboramiz (bot kanali bilan bir xil prompt, lekin pages konteksti qo'shilgan)
+        page_context = f"\nFOYDALANUVCHI HOZIR SAHIFADA: {current_page}\nMINI APP ICHIDA — sahifa o'zgartirish so'rovi bo'lsa 'navigate' action ber.\n"
+
+        try:
+            parsed = await groq_service.parse_transaction(
+                text=message_text,
+                current_date_str=current_date,
+                language=language,
+                custom_categories=custom_cats_list,
+                user_id=user_id,
+                user_context=user_context,
+                recent_txs=(recent_txs or "") + page_context,
+                habits=habits,
+                all_balances=all_balance_names,
+                chat_history=chat_history,
+            )
+        except GroqQueueError:
+            return set_cors(web.json_response({
+                "reply": "⏳ Bot hozir band, bir necha soniyadan keyin urinib ko'ring.",
+                "actions": [],
+                "intent": "busy"
+            }))
+
+        intent = parsed.get("intent", "chat")
+        reply = parsed.get("chat_response") or parsed.get("reply") or ""
+        actions = []
+
+        # ── REPORT intent: AI hisobotini olib qaytaramiz ──
+        if intent == "report":
+            try:
+                ctx = await get_report_context(user_id)
+                report_text = await groq_service.generate_report_response(
+                    parsed.get("report_query") or message_text, ctx, language, parsed.get("user_segment")
+                )
+                reply = report_text
+            except Exception as e:
+                logger.warning(f"/api/chat report fallback: {e}")
+                if not reply:
+                    reply = "Hozir hisobot tayyorlay olmadim. Keyinroq urinib ko'ring."
+
+        # ── ADVICE intent ──
+        elif intent == "advice":
+            try:
+                ctx = await get_financial_advice_context(user_id, "UZS")
+                advice_text = await groq_service.generate_smart_financial_advice(
+                    user_context=user, financial_data=ctx, trigger_type="user_requested", language=language
+                )
+                reply = advice_text
+            except Exception as e:
+                logger.warning(f"/api/chat advice fallback: {e}")
+                if not reply:
+                    reply = "💡 Hozir maslahat tayyorlay olmadim. Keyinroq urinib ko'ring."
+
+        # ── FINANCE intent: tranzaksiya saqlangan bo'lsa, mini app yangilanishi kerak ──
+        elif intent == "finance":
+            transactions = parsed.get("transactions") or []
+            if transactions:
+                # Tranzaksiyani saqlash uchun message_handler logikasini chaqiramiz
+                from src.handlers.message_handler import process_extracted_transactions
+                # Simulate Message obyekt — kerakli minimum
+                class _FakeMsg:
+                    def __init__(self, uid):
+                        self.from_user = type('U', (), {'id': uid})()
+                    async def answer(self, *a, **k): pass
+
+                try:
+                    await process_extracted_transactions(
+                        _FakeMsg(user_id), transactions, user_id, language, current_date,
+                        custom_cats=custom_cats, ai_reply=None, habits=habits, state=None, tip=None
+                    )
+                    actions.append({"type": "refresh_data"})
+                    if not reply:
+                        reply = "✅ Saqlandi"
+                    # Cache'ni invalidate qilamiz — mini app yangi balansni darhol ko'rsin
+                    invalidate_user_cache(user_id)
+                except Exception as e:
+                    logger.error(f"/api/chat finance save error: {e}")
+                    reply = "❌ Saqlashda xatolik. Qayta urinib ko'ring."
+
+        # ── Default fallback ──
+        if not reply:
+            reply = "Tushundim. Yana savolingiz bormi?"
+
+        # ── Page navigation hints (chat_response ichida "navigate:/path" bo'lsa) ──
+        # AI keyinroq native action chiqarishni o'rganadi, hozir keyword detection:
+        msg_low = message_text.lower()
+        nav_keywords = {
+            "/balances": ["balansim", "balans", "hisoblarim", "balanslar"],
+            "/debts": ["qarz", "qarzlar"],
+            "/categories": ["kategoriya", "kategoriyalar"],
+            "/reports": ["hisobot", "statistika", "reports"],
+            "/settings": ["sozlama", "tilni o'zgartir", "til o'zgartir", "mavzu"],
+            "/profile": ["profil", "akkaunt"],
+        }
+        for target, kws in nav_keywords.items():
+            if any(f"{kw} ochi" in msg_low or f"{kw} ga o'tkaz" in msg_low or f"{kw} ga o't" in msg_low for kw in kws):
+                if target != current_page:
+                    actions.append({"type": "navigate", "to": target})
+                break
+
+        # Language change detection
+        if any(p in msg_low for p in ["til rus", "ruscha qil", "switch to ru", "русский"]):
+            actions.append({"type": "change_language", "code": "ru"})
+        elif any(p in msg_low for p in ["til ingliz", "english qil", "switch to en"]):
+            actions.append({"type": "change_language", "code": "en"})
+        elif any(p in msg_low for p in ["til o'zbek", "uzbek qil", "switch to uz"]):
+            actions.append({"type": "change_language", "code": "uz"})
+
+        # Theme change detection
+        if "qorong" in msg_low or "dark" in msg_low:
+            if "yoqib" in msg_low or "qil" in msg_low or "o'tkaz" in msg_low:
+                actions.append({"type": "change_theme", "mode": "dark"})
+        elif "yorug" in msg_low or "light" in msg_low or "oq" in msg_low:
+            if "qil" in msg_low or "o'tkaz" in msg_low:
+                actions.append({"type": "change_theme", "mode": "light"})
+
+        # Modal open detection
+        if any(p in msg_low for p in ["kirim qo'sh", "kirim kirit"]):
+            actions.append({"type": "open_modal", "modal": "kirim"})
+        elif any(p in msg_low for p in ["chiqim qo'sh", "chiqim kirit", "xarajat kirit"]):
+            actions.append({"type": "open_modal", "modal": "chiqim"})
+        elif any(p in msg_low for p in ["qarz qo'sh", "qarz kirit"]):
+            actions.append({"type": "open_modal", "modal": "qarz"})
+
+        # Save assistant reply to history
+        asyncio.create_task(save_chat_message(user_id, "assistant", reply))
+
+        return set_cors(web.json_response({
+            "reply": reply,
+            "actions": actions,
+            "intent": intent,
+        }))
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        log_error(ErrorType.UNKNOWN, f"/api/chat error: {e}", exception=e)
+        return set_cors(web.json_response({
+            "reply": "⚠️ Hozir javob bera olmadim. Keyinroq urinib ko'ring.",
+            "actions": [],
+            "intent": "error"
+        }, status=500))
+
+
 # ─── REFERRAL ENDPOINTS ───
 
 @routes.get('/api/referrals')
