@@ -732,29 +732,34 @@ async def get_user_financial_context(telegram_id: int) -> dict:
     }
 
 async def get_recent_transactions_context(telegram_id: int) -> str:
-    """Returns a compressed string of the last 30 transactions to train the AI category mapping."""
+    """
+    Returns a compressed string of recent transactions for AI category mapping.
+    Limit: 10 (was 30) — 413 Payload oldini olish + TPM tejash uchun.
+    """
     pipeline = [
         {"$match": {"telegram_id": telegram_id, "type": {"$in": ["kirim", "chiqim"]}}},
         {"$sort": {"created_at": -1}},
-        {"$limit": 30},
+        {"$limit": 30},  # MongoDB'dan 30 ta olamiz, lekin dedup'dan keyin 10 ta saqlaymiz
         {"$project": {"description": 1, "category": 1}}
     ]
     cursor = transactions_collection.aggregate(pipeline)
     txs = await cursor.to_list(length=30)
-    
+
     if not txs:
         return "Hali tranzaksiyalar yo'q."
-        
+
     context_lines = []
-    # Deduplicate by description to save tokens
     seen_desc = set()
+    MAX_LINES = 10  # AI uchun yetarli — kategoriya pattern'larini o'rganadi
     for tx in txs:
         desc = tx.get("description", "").lower().strip()
         cat = tx.get("category", "")
         if desc and cat and desc not in seen_desc:
             context_lines.append(f"- {desc} -> {cat}")
             seen_desc.add(desc)
-            
+            if len(context_lines) >= MAX_LINES:
+                break
+
     return "\n".join(context_lines)
 
 
@@ -2206,11 +2211,12 @@ async def save_chat_message(user_id: int, role: str, content: str, tx_id: str = 
     }
     await chat_history_collection.insert_one(doc)
 
-async def get_chat_history(user_id: int, limit: int = 8) -> list:
+async def get_chat_history(user_id: int, limit: int = 4) -> list:
     """
     Returns recent chat history formatted for AI context.
-    Limit: 8 (was 15) — kamroq tokens, ~1.5x tezroq inference.
-    Sync uchun yetarli: oxirgi 4 ta savol-javob.
+    Limit: 4 (was 15→8→4) — oxirgi 2 ta savol-javob.
+    Maqsad: 413 Payload Too Large oldini olish + TPM tejash.
+    Sync uchun yetarli: AI o'tgan turdagi xabarni ko'rib qaror qila oladi.
     """
     cursor = chat_history_collection.find({"user_id": user_id}).sort("timestamp", -1).limit(limit)
     docs = await cursor.to_list(length=limit)

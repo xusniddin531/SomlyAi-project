@@ -42,7 +42,6 @@ from src.database import (
     get_referral_stats, get_all_referral_stats
 )
 from src.categories import SYSTEM_CATEGORIES
-from src.config import BOT_TOKEN
 from src.services.error_handler import log_error, handle_error, ErrorType
 
 logger = logging.getLogger(__name__)
@@ -1353,7 +1352,6 @@ async def remove_wallet_member_api(request):
 # ADMIN PANEL ROUTES
 # ═══════════════════════════════════════
 
-import hashlib
 import secrets
 
 # Simple token store (in-memory, resets on restart)
