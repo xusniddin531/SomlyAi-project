@@ -108,5 +108,23 @@
     "seg_interest_added": "qiziqishlaringizga qo'shildi!",
     "seg_interest_skipped": "Tushundim, keyingi safar! 😊",
     "seg_yes": "Ha",
-    "seg_no": "Yo'q"
+    "seg_no": "Yo'q",
+
+    "ai_thinking": "💡 Holatingizni tahlil qilyapman, bir soniya...",
+    "ai_busy_short": "⏳ Bir oz band... ({n}/{total})",
+    "ai_unavailable": "😔 AI hozir ishlamayapti. Keyinroq urinib ko'ring.",
+    "ai_generic_fallback": "Tushundim. Yana savolingiz bormi?",
+    "ai_advice_fallback": "💡 Hozir batafsil maslahat tayyorlay olmadim. Keyinroq qayta urinib ko'ring.",
+    "ai_report_fallback": "Hozir hisobot tayyorlay olmadim. Keyinroq urinib ko'ring.",
+
+    "voice_too_short": "🎤 Ovoz juda qisqa, qaytadan yuboring",
+    "voice_too_long": "🎤 Ovoz juda uzun.\nIltimos qisqaroq yuboring",
+    "voice_too_large": "🎤 Ovoz fayli juda katta (25MB dan oshmasin). Qisqaroq yuboring.",
+    "voice_bad_format": "🎤 Ovoz formati noto'g'ri yoki buzilgan. Iltimos qayta yuboring.",
+
+    "bot_intro": "Assalomu alaykum! 🌙 Men Somly AI — shaxsiy moliyaviy maslahatchingizman. Bepul, ovoz/matn bilan ishlayman. Bugungi xarajatingizni yozing — birga nazorat qilamiz! 💪",
+    "bot_secret_reply": "Men faqat sizning Somly AI moliyaviy yordamchingizman 😊 Texnik savollar uchun @XusniddinWR ga murojaat qiling.",
+    "bot_why_free": "Somly AI bepul — millatga hurmatimiz belgisi 🇺🇿 Moliyaviy savodxonlik — har kimning huquqi. Kanallarimizga obuna orqali qo'llab-quvvatlasangiz, biz xizmat qilamiz. 🤝",
+    "btn_privacy": "🔒 Maxfiylik siyosati",
+    "btn_open_miniapp": "📊 Mini Appni ochish"
 }

@@ -107,5 +107,23 @@
     "seg_interest_added": "has been added to your interests!",
     "seg_interest_skipped": "Got it, maybe next time! 😊",
     "seg_yes": "Yes",
-    "seg_no": "No"
+    "seg_no": "No",
+
+    "ai_thinking": "💡 Analyzing your situation, one moment...",
+    "ai_busy_short": "⏳ A bit busy... ({n}/{total})",
+    "ai_unavailable": "😔 AI is unavailable right now. Please try again later.",
+    "ai_generic_fallback": "Got it. Any more questions?",
+    "ai_advice_fallback": "💡 Couldn't prepare detailed advice right now. Please try again later.",
+    "ai_report_fallback": "Couldn't prepare the report right now. Please try again later.",
+
+    "voice_too_short": "🎤 Voice is too short, please record again",
+    "voice_too_long": "🎤 Voice is too long.\nPlease send a shorter one",
+    "voice_too_large": "🎤 Voice file is too large (max 25MB). Please send a shorter one.",
+    "voice_bad_format": "🎤 Audio format is invalid or corrupted. Please record again.",
+
+    "bot_intro": "Hello! 🌙 I'm Somly AI — your personal finance assistant. Free, works with voice and text. Type today's expense — let's track it together! 💪",
+    "bot_secret_reply": "I'm just your Somly AI finance assistant 😊 For technical questions please contact @XusniddinWR.",
+    "bot_why_free": "Somly AI is free — our mark of respect to the nation 🇺🇿 Financial literacy is everyone's right. By subscribing to our channels you support us, and we serve you. 🤝",
+    "btn_privacy": "🔒 Privacy Policy",
+    "btn_open_miniapp": "📊 Open Mini App"
 }

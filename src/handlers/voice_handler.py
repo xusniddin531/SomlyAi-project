@@ -68,17 +68,17 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
 
     if duration < 1:  # Less than 1 second (~0.5s rounded)
         log_error(ErrorType.VOICE_TOO_SHORT, f"Voice too short: {duration}s", user_id)
-        await status_msg.edit_text("🎤 Ovoz juda qisqa, qaytadan yuboring")
+        await status_msg.edit_text(t(lang, "voice_too_short"))
         return
 
     if duration > 120:
         log_error(ErrorType.VOICE_TOO_SHORT, f"Voice too long: {duration}s", user_id)
-        await status_msg.edit_text("🎤 Ovoz juda uzun.\nIltimos qisqaroq yuboring")
+        await status_msg.edit_text(t(lang, "voice_too_long"))
         return
 
     if file_size and file_size > WHISPER_MAX_FILE_SIZE:
         log_error(ErrorType.VOICE_WHISPER_FAIL, f"Voice file too large: {file_size}b", user_id)
-        await status_msg.edit_text("🎤 Ovoz fayli juda katta (25MB dan oshmasin). Qisqaroq yuboring.")
+        await status_msg.edit_text(t(lang, "voice_too_large"))
         return
 
     # ── Download voice file ──
@@ -100,8 +100,20 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         await status_msg.edit_text(t(lang, "err_voice_download"))
         return
 
+    # ── Typing indicator fire-and-forget (foydalanuvchi darrov his qiladi) ──
+    import asyncio as _asyncio
+    async def _send_typing():
+        try:
+            await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        except Exception:
+            pass
+    _asyncio.create_task(_send_typing())
+
     try:
         # ── Groq Whisper transcription (Groq SDK orqali, OpenAI emas) ──
+        # NOTE: parallel context fetch transcribe BILAN BIRGA bo'lishi mumkin, lekin
+        # transcribe natijasi (matn) AI prompt'ga kerak — context fetch transcribe
+        # tugashidan oldin handle_transaction_text ichida boshlanadi (asyncio.gather).
         try:
             transcribed_text = await groq_service.transcribe_audio_with_retry(local_path)
         except WhisperAllKeysExhaustedError as e:
@@ -110,7 +122,7 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
             return
         except WhisperInvalidAudioError as e:
             log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Groq Whisper", user_id, e)
-            await status_msg.edit_text("🎤 Ovoz formati noto'g'ri yoki buzilgan. Iltimos qayta yuboring.")
+            await status_msg.edit_text(t(lang, "voice_bad_format"))
             return
         except GroqQueueError:
             await status_msg.edit_text(t(lang, "err_ai_busy"))

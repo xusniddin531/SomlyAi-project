@@ -384,7 +384,7 @@ async def handle_queued_transaction(
         except GroqQueueError as e:
             last_exc = e
             if attempt < MAX_ATTEMPTS:
-                await update_status(f"⏳ Bir oz band... ({attempt}/{MAX_ATTEMPTS})")
+                await update_status(t(language, "ai_busy_short", n=attempt, total=MAX_ATTEMPTS))
                 await asyncio.sleep(RETRY_DELAY)
             else:
                 # Barcha urinishlar tugadi
@@ -443,7 +443,7 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
     if intent == "advice":
         from src.database import get_financial_advice_context, get_user
 
-        await message.answer("💡 Holatingizni tahlil qilyapman, bir soniya...")
+        await message.answer(t(language, "ai_thinking"))
 
         try:
             user_data = await get_user(user_id)
@@ -462,7 +462,7 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
         except Exception as e:
             log_error(ErrorType.GROQ_SERVER, f"Advice generation failed", user_id, e)
             # Fallback: send a chat_response if AI provided one, else a generic message
-            fallback = data.get("chat_response") or "💡 Hozir batafsil maslahat tayyorlay olmadim. Keyinroq qayta urinib ko'ring."
+            fallback = data.get("chat_response") or t(language, "ai_advice_fallback")
             await message.answer(fallback)
         return
 
@@ -550,24 +550,25 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
         return
 
     # ─── 2. Bot haqida savol (o'zini tanishtirish) ───
+    # Static javob — i18n orqali user tilida. AI promptga shu matnni bermaymiz (token tejash).
     if intent == "bot_about":
-        reply_msg = data.get("chat_response") or "Men Somly AI — sizning moliyaviy yordamchingizman! 😊"
-        # 🔒 Maxfiylik siyosati tugmasi + Mini App tugmasi
+        reply_msg = t(language, "bot_intro")
         url = await get_webapp_url()
         base_url = url.rstrip('/') if url else ""
         privacy_url = f"{base_url}/#/privacy" if base_url else ""
         buttons = []
         if privacy_url:
-            buttons.append([InlineKeyboardButton(text="🔒 Maxfiylik siyosati", web_app=WebAppInfo(url=privacy_url))])
-        buttons.append([InlineKeyboardButton(text="📊 Mini Appni ochish", web_app=WebAppInfo(url=url))])
+            buttons.append([InlineKeyboardButton(text=t(language, "btn_privacy"), web_app=WebAppInfo(url=privacy_url))])
+        buttons.append([InlineKeyboardButton(text=t(language, "btn_open_miniapp"), web_app=WebAppInfo(url=url))])
         kb = InlineKeyboardMarkup(inline_keyboard=buttons)
         await message.answer(reply_msg, reply_markup=kb)
         await save_chat_message(user_id, "assistant", reply_msg)
         return
 
     # ─── 3. Maxfiy savol (himoya) ───
+    # Static javob — i18n orqali user tilida.
     if intent == "secret":
-        reply_msg = data.get("chat_response") or "Men faqat sizning Somly AI moliyaviy yordamchingizman 😊 Texnik savollar uchun @XusniddinWR ga murojaat qiling."
+        reply_msg = t(language, "bot_secret_reply")
         await message.answer(reply_msg)
         await save_chat_message(user_id, "assistant", reply_msg)
         return
