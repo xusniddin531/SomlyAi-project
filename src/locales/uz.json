@@ -59,7 +59,7 @@
     "debt_btn_del": "O'chirish ❌",
     "debt_no_due_date": "Belgilanmagan",
 
-    "voice_processing": "Ovoz yozuvi tahlil qilinmoqda... ⏳",
+    "voice_processing": "⏳",
     "voice_not_understood": "Kechirasiz, ovozingizni tushunib bo'lmadi. Iltimos qaytadan urinib ko'ring yoki matn ko'rinishida yozing.",
 
     "error_occurred": "Xatolik yuz berdi: {error}",

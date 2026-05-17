@@ -140,26 +140,44 @@ class GroqService:
             logger.error(f"Failed to send admin alert: {e}")
 
     def get_best_key(self) -> KeyStats:
+        """
+        Eng yaxshi mavjud kalitni qaytaradi.
+        - cooling kalitlar 60s o'tgan bo'lsa darhol aktivga aylanadi
+        - hech qanday aktiv kalit yo'q bo'lsa, ENG ESKI cooling kalitni FORCE qaytaramiz
+          (foydalanuvchini cheksiz kutkazmaslik uchun, oxirgi chora sifatida)
+        - hamma kalit 401/quota bo'lsa GroqServerError
+        """
         now = time.time()
-        # 1. Check if any cooling key can be reactivated (NOT exhausted/401 keys)
-        for ks in self.keys_stats:
-            if ks.status == "cooling":
-                if now - ks.last_error_time > 60:
-                    ks.status = "active"
-                    ks.connection_errors = 0
-                    logger.info(f"Groq API Key {ks.index+1} reactivated after cooling.")
 
-        # 2. Find the active key with the minimum requests
+        # 1. Cooling → active, agar 60s o'tgan bo'lsa
+        for ks in self.keys_stats:
+            if ks.status == "cooling" and (now - ks.last_error_time) > 60:
+                ks.status = "active"
+                ks.connection_errors = 0
+                logger.info(f"Groq API Key {ks.index+1} reactivated after cooling.")
+
+        # 2. Aktiv kalit bor — eng kam ishlatilganini olamiz
         active_keys = [ks for ks in self.keys_stats if ks.status == "active"]
         if active_keys:
-            best_key = min(active_keys, key=lambda x: x.requests_count)
-            return best_key
-        
-        # 3. All keys are either cooling or exhausted
+            return min(active_keys, key=lambda x: x.requests_count)
+
+        # 3. Aktiv yo'q. Tekshiramiz: hammasi 401 bo'lsami?
         exhausted_keys = [ks for ks in self.keys_stats if ks.status == "exhausted"]
         if len(exhausted_keys) == len(self.keys_stats):
             raise GroqServerError("All API keys are permanently exhausted (401/Quota).")
-        
+
+        # 4. Faqat cooling kalitlar qoldi — ENG ESKI sovugani FORCE aktivga aylantiramiz
+        # (foydalanuvchini cheksiz "Bir daqiqa..." kutkazmaslik uchun)
+        cooling_keys = [ks for ks in self.keys_stats if ks.status == "cooling"]
+        if cooling_keys:
+            oldest = max(cooling_keys, key=lambda x: (now - x.last_error_time))
+            wait_s = now - oldest.last_error_time
+            if wait_s > 10:  # kamida 10s sovugan bo'lsa, sinab ko'ramiz
+                oldest.status = "active"
+                oldest.connection_errors = 0
+                logger.warning(f"Force-promoting cooling Key {oldest.index+1} after {wait_s:.1f}s (no active keys available)")
+                return oldest
+
         raise GroqQueueError("All keys are exhausted or cooling. Queueing required.")
 
     async def chat_completion_with_retry(self, messages: List[Dict], **kwargs) -> str:

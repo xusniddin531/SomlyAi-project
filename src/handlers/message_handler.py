@@ -252,10 +252,11 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     """
     Main processing pipeline:
     1. Duplicate check
-    2. Context fetch & AI parse
-    3. Ambiguity resolution (FSM)
-    4. Handle error intents & chat
-    5. Save & respond with formatted message
+    2. Typing indicator (user darhol bot ishlayotganini his qiladi)
+    3. Context fetch & AI parse
+    4. Ambiguity resolution (FSM)
+    5. Handle error intents & chat
+    6. Save & respond with formatted message
     """
     user_id = message.from_user.id
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -264,6 +265,15 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     if is_duplicate_message(user_id, text):
         logger.info(f"Duplicate message ignored from {user_id}: {text[:50]}")
         return
+
+    # ─── 0.5. Typing indicator — foydalanuvchi darhol "yozmoqda..." his qiladi ───
+    # Fire-and-forget: blokirovka qilmaydi, xato bo'lsa indikator ko'rinmaydi
+    async def _send_typing():
+        try:
+            await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+        except Exception:
+            pass
+    asyncio.create_task(_send_typing())
 
     user = await get_user(user_id)
     language = user.get("language", "uz")
@@ -283,12 +293,13 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     asyncio.create_task(save_chat_message(user_id, "user", text))
 
     # ─── 1. Send to AI ───
+    status_msg = None  # "Bir daqiqa..." xabar reference (edit/delete uchun)
     try:
         data = await groq_service.parse_transaction(
-            text=text, 
-            current_date_str=current_date, 
-            language=language, 
-            custom_categories=custom_cats_list, 
+            text=text,
+            current_date_str=current_date,
+            language=language,
+            custom_categories=custom_cats_list,
             user_id=user_id,
             user_context=user_context,
             recent_txs=recent_txs,
@@ -297,9 +308,15 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
             chat_history=chat_history
         )
     except GroqQueueError:
-        await message.answer("⏳ Bir daqiqa, javobing tayyorlanmoqda...")
+        # Status xabar yuboramiz va reference saqlaymiz — edit/delete uchun
+        try:
+            status_msg = await message.answer("⏳")
+        except Exception:
+            status_msg = None
         asyncio.create_task(handle_queued_transaction(
-            message, text, current_date, language, custom_cats_list, user_id, user_context, recent_txs, habits, state, all_balance_names, chat_history
+            message, text, current_date, language, custom_cats_list, user_id,
+            user_context, recent_txs, habits, state, all_balance_names, chat_history,
+            status_msg=status_msg,
         ))
         return
     except Exception as e:
@@ -310,14 +327,44 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     await process_parsed_data(data, message, user_id, language, current_date, custom_cats, state, habits)
 
 
-async def handle_queued_transaction(message, text, current_date, language, custom_cats_list, user_id, user_context, recent_txs, habits, state, all_balance_names=None, chat_history=None):
-    while True:
+async def handle_queued_transaction(
+    message, text, current_date, language, custom_cats_list, user_id,
+    user_context, recent_txs, habits, state, all_balance_names=None,
+    chat_history=None, status_msg=None,
+):
+    """
+    Retry parse_transaction with bounded attempts.
+    Max ~15s total: 3 attempts × 5s. Foydalanuvchini cheksiz kutkazmaymiz.
+    Status xabar har urinishda yangilanadi.
+    """
+    MAX_ATTEMPTS = 3
+    RETRY_DELAY = 5  # 30s → 5s: kalitlar cooling 60s, lekin har 5s da yangisini probe qilamiz
+
+    async def update_status(text_):
+        if status_msg is None:
+            return
+        try:
+            await status_msg.edit_text(text_)
+        except Exception:
+            pass
+
+    async def delete_status():
+        if status_msg is None:
+            return
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+    data = None
+    last_exc = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
             data = await groq_service.parse_transaction(
-                text=text, 
-                current_date_str=current_date, 
-                language=language, 
-                custom_categories=custom_cats_list, 
+                text=text,
+                current_date_str=current_date,
+                language=language,
+                custom_categories=custom_cats_list,
                 user_id=user_id,
                 user_context=user_context,
                 recent_txs=recent_txs,
@@ -325,13 +372,31 @@ async def handle_queued_transaction(message, text, current_date, language, custo
                 all_balances=all_balance_names,
                 chat_history=chat_history
             )
-            break
-        except GroqQueueError:
-            await asyncio.sleep(30)
+            break  # muvaffaqiyat
+        except GroqQueueError as e:
+            last_exc = e
+            if attempt < MAX_ATTEMPTS:
+                await update_status(f"⏳ Bir oz band... ({attempt}/{MAX_ATTEMPTS})")
+                await asyncio.sleep(RETRY_DELAY)
+            else:
+                # Barcha urinishlar tugadi
+                await update_status(t(language, "err_ai_busy"))
+                return
         except Exception as e:
-            log_error(ErrorType.GROQ_SERVER, f"Unexpected AI error in queue", user_id, e)
-            await message.answer(t(language, "err_ai_down"))
+            log_error(ErrorType.GROQ_SERVER, f"Unexpected AI error in queue (attempt {attempt})", user_id, e)
+            await update_status(t(language, "err_ai_down"))
             return
+
+    # Muvaffaqiyat — status xabarni o'chiramiz (real javob keladi)
+    await delete_status()
+
+    if data is None:
+        # Bu yerga kelmasligi kerak, lekin xavfsizlik uchun
+        try:
+            await message.answer(t(language, "err_ai_down"))
+        except Exception:
+            pass
+        return
 
     await process_parsed_data(data, message, user_id, language, current_date, custom_cats_list, state, habits)
 async def process_parsed_data(data: dict, message: Message, user_id: int, language: str, current_date: str, custom_cats: list, state: FSMContext, habits: dict = None):

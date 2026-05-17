@@ -128,7 +128,7 @@ async def handle_group_message(message: Message):
             habits=habits
         )
     except GroqQueueError:
-        await message.answer("⏳ Bir daqiqa, javobing tayyorlanmoqda...")
+        await message.answer("⏳")
         import asyncio
         asyncio.create_task(handle_queued_group_transaction(
             message, text, current_date, language, custom_cats_list, user_id, user_context, recent_txs, habits, group, user
