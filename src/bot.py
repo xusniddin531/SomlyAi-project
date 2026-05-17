@@ -19,7 +19,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand, ErrorEvent
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter, TelegramConflictError
 from src.config import BOT_TOKEN
 from src.handlers import (
     start_handler,
@@ -48,8 +48,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Module-level shutdown signal — TelegramConflictError yoki SIGTERM tetiklashi mumkin
+_CONFLICT_SHUTDOWN_EVENT: asyncio.Event = None
+
 
 async def main():
+    global _CONFLICT_SHUTDOWN_EVENT
+    _CONFLICT_SHUTDOWN_EVENT = asyncio.Event()
     bot = Bot(token=BOT_TOKEN)
     dp = Dispatcher(storage=MemoryStorage())
 
@@ -90,6 +95,21 @@ async def main():
                     await update.message.answer("⚠️ Xabar juda uzun. Qisqaroq formatda ko'rsatildi.")
                 except Exception:
                     pass
+            return True
+
+        # ── Telegram Conflict (boshqa nusxa polling qilmoqda) ──
+        # Bu sodir bo'lsa, joriy konteyner gracefully o'zini yopadi —
+        # cheksiz "Conflict" loop'iga tushib qolmaslik uchun.
+        if isinstance(exception, TelegramConflictError):
+            logger.error(
+                "🚨 TelegramConflictError: boshqa nusxa shu token bilan polling qilyapti. "
+                "Joriy konteyner yopilmoqda (orkestrator restart qiladi)."
+            )
+            # Bot yopishni shu jarayonda qilish — main() ichida shutdown_event tetiklash
+            try:
+                _CONFLICT_SHUTDOWN_EVENT.set()
+            except NameError:
+                pass
             return True
 
         # ── Flood limit (429) ──
@@ -182,6 +202,29 @@ async def main():
     from src.database import ensure_indexes
     await ensure_indexes()
 
+    # ── Graceful shutdown handler ──
+    # Docker SIGTERM yuborganda 30s ichida toza yopilish kerak.
+    # Aks holda Docker SIGKILL yuboradi va joriy task'lar yo'qoladi.
+    # shutdown_event = global _CONFLICT_SHUTDOWN_EVENT (SIGTERM + Conflict ikkalasi tetiklashi mumkin)
+    shutdown_event = _CONFLICT_SHUTDOWN_EVENT
+
+    def _handle_signal(sig_name: str):
+        logger.warning(f"⚠️ {sig_name} signali qabul qilindi. Graceful shutdown boshlanmoqda...")
+        shutdown_event.set()
+
+    # POSIX signallar (Linux/Docker)
+    try:
+        import signal as _signal
+        loop = asyncio.get_running_loop()
+        for sig in (_signal.SIGTERM, _signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _handle_signal, sig.name)
+            except (NotImplementedError, RuntimeError):
+                # Windows'da add_signal_handler ishlamaydi — KeyboardInterrupt orqali boshqariladi
+                pass
+    except Exception as e:
+        logger.warning(f"Signal handler setup failed: {e}")
+
     # ── Start polling ──
     logger.info("🚀 Somly AI Bot ishga tushdi!")
     await bot.set_my_commands([
@@ -190,8 +233,52 @@ async def main():
         BotCommand(command="excel", description="Hisobotni yuklab olish"),
     ])
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+
+    # Polling'ni background task sifatida ishga tushiramiz — SIGTERM kelganda to'xtatish uchun
+    polling_task = asyncio.create_task(dp.start_polling(bot, handle_signals=False))
+    shutdown_task = asyncio.create_task(shutdown_event.wait())
+
+    done, pending = await asyncio.wait(
+        {polling_task, shutdown_task},
+        return_when=asyncio.FIRST_COMPLETED,
+    )
+
+    # SIGTERM kelgan bo'lsa — graceful shutdown
+    if shutdown_event.is_set():
+        logger.info("Polling'ni to'xtatmoqdamiz...")
+        try:
+            await dp.stop_polling()
+        except Exception as e:
+            logger.warning(f"stop_polling error: {e}")
+
+        # Joriy task'larga 5 soniya beramiz tugashga
+        try:
+            await asyncio.wait_for(polling_task, timeout=5.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            polling_task.cancel()
+
+        # WebSocket connections'ni xabardor qilamiz
+        try:
+            from src.ws_manager import ws_manager
+            await ws_manager.broadcast_all("server_restarting")
+        except Exception:
+            pass
+
+        # Bot session'ni yopish (telegram connection)
+        try:
+            await bot.session.close()
+        except Exception:
+            pass
+
+        logger.info("✅ Bot toza yopildi.")
+    else:
+        # Polling o'zi tugagan (xato) — keyingi pending task'ni tozalaymiz
+        for task in pending:
+            task.cancel()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("KeyboardInterrupt — yopilmoqda...")

@@ -439,25 +439,43 @@ async def create_category(request):
     try:
         data = await request.json()
         user_id = int(data.get('user_id', 0))
-        name = data.get('name')
-        emoji = data.get('emoji')
-        cat_type = data.get('type')
-        color = data.get('color', '#0A84FF')
-        
-        if not all([user_id, name, emoji, cat_type]):
-            return set_cors(web.json_response({"error": "Missing fields"}, status=400))
-            
-        cat_id = await add_custom_category(user_id, emoji, name, cat_type, color)
-        
+        name = (data.get('name') or '').strip()
+        emoji = (data.get('emoji') or '📦').strip()
+        cat_type = (data.get('type') or 'chiqim').strip()
+        color = data.get('color') or '#0A84FF'
+
+        if not user_id or not name:
+            return set_cors(web.json_response({"error": "user_id va name majburiy"}, status=400))
+
+        # Type validation
+        if cat_type not in ('kirim', 'chiqim', 'ikkalasi', 'both'):
+            cat_type = 'chiqim'
+        if cat_type == 'both':
+            cat_type = 'ikkalasi'
+
+        try:
+            cat_id = await add_custom_category(user_id, emoji, name, cat_type, color)
+        except Exception as e:
+            logger.error(f"create_category: DB insert failed for user {user_id}: {e}")
+            return set_cors(web.json_response({"error": f"DB error: {str(e)[:100]}"}, status=500))
+
+        # Telegram notify — bot bloklangan bo'lsa 500 emas, sukunat
         bot = request.app.get('bot')
         if bot:
-            user = await get_user(user_id)
-            user_name = user.get("full_name", "Siz")
-            msg = f"✅ {user_name} Mini Appda:\nYangi kategoriya qo'shildi:\n{emoji} {name} ({cat_type})"
-            await bot.send_message(chat_id=user_id, text=msg)
-            
+            try:
+                user = await get_user(user_id) or {}
+                user_name = user.get("full_name", "Siz")
+                msg = f"✅ {user_name} Mini Appda:\nYangi kategoriya qo'shildi:\n{emoji} {name} ({cat_type})"
+                await bot.send_message(chat_id=user_id, text=msg)
+            except Exception as e:
+                logger.warning(f"create_category notify failed for {user_id}: {e}")
+
+        invalidate_user_cache(user_id)
         return set_cors(web.json_response({"success": True, "id": str(cat_id)}))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        logger.error(f"create_category unexpected error: {e}")
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 @routes.delete('/api/categories/{cat_id}')
@@ -900,42 +918,57 @@ async def debt_action(request):
                 return set_cors(web.json_response({"error": "Debt not found"}, status=404))
 
             await update_debt_status(debt_id, 'paid')
-            
+
             # Cancel related reminders
             from src.database import reminders_collection
             await reminders_collection.update_many(
                 {"related_debt_id": debt_id, "status": "pending"},
                 {"$set": {"status": "done", "updated_at": datetime.utcnow()}}
             )
-            
-            t_type = "kirim" if debt.get("direction") == "bergan" else "chiqim" 
-            amount = debt.get("amount", 0) - debt.get("paid_amount", 0)
-            currency = debt.get("currency", "UZS")
-            
-            tx_data = {
-                "telegram_id": debt.get("telegram_id", user_id),
-                "type": t_type,
-                "amount": amount,
-                "currency": currency,
-                "category": "🔄 Qarz qaytdi" if t_type == "kirim" else "🔄 Qarz uzildi",
-                "description": f"{debt.get('person')} bilan qarz hisob-kitobi",
-                "affects_balance": True
-            }
-            await insert_transaction(tx_data)
-            await update_user_balance(tx_data["telegram_id"], currency, amount, is_income=(t_type == "kirim"))
-            
+
+            t_type = "kirim" if debt.get("direction") == "bergan" else "chiqim"
+            # NULL-safe arithmetic — paid_amount/amount None bo'lishi mumkin
+            total_amt = float(debt.get("amount") or 0)
+            paid_amt = float(debt.get("paid_amount") or 0)
+            amount = max(0, total_amt - paid_amt)
+            currency = debt.get("currency") or "UZS"
+
+            if amount > 0:
+                tx_data = {
+                    "telegram_id": debt.get("telegram_id", user_id),
+                    "type": t_type,
+                    "amount": amount,
+                    "currency": currency,
+                    "category": "🔄 Qarz qaytdi" if t_type == "kirim" else "🔄 Qarz uzildi",
+                    "description": f"{debt.get('person', '?')} bilan qarz hisob-kitobi",
+                    "affects_balance": True
+                }
+                try:
+                    await insert_transaction(tx_data)
+                    await update_user_balance(tx_data["telegram_id"], currency, amount, is_income=(t_type == "kirim"))
+                except Exception as e:
+                    logger.error(f"debt_pay: tx/balance update failed for debt {debt_id}: {e}")
+
             msg = f"✅ {user_name} Mini Appda:\nQarz qaytarilgan deb belgilandi va balans yangilandi."
         elif action == 'delete':
             await delete_debt(debt_id)
             msg = f"✅ {user_name} Mini Appda:\nQarz o'chirildi."
         else:
             return set_cors(web.json_response({"error": "Invalid action"}, status=400))
-            
+
+        # Telegram xabar — foydalanuvchi bot'ni bloklagan bo'lsa 500 bo'lmasin
         if bot and user_id:
-            await bot.send_message(chat_id=user_id, text=msg)
-            
+            try:
+                await bot.send_message(chat_id=user_id, text=msg)
+            except Exception as e:
+                logger.warning(f"debt_action notify failed for {user_id}: {e}")
+
+        invalidate_user_cache(user_id)
         return set_cors(web.json_response({"success": True}))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        logger.error(f"debt_action {action} failed for debt {debt_id}: {e}")
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
@@ -2102,6 +2135,49 @@ STATISTIKA KONTEKSTI:
         traceback.print_exc()
         # Fallback to normal error response if not prepared yet
         return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
+# ═══════════════════════════════════════
+# HEALTH CHECK (Docker / Railway / Render probe uchun)
+# ═══════════════════════════════════════
+import time as _time
+_API_START_TIME = _time.time()
+
+@routes.get('/api/health')
+async def health_check(request):
+    """
+    Lightweight health check.
+    Docker/Railway shuni har 30s tekshiradi — agar 200 qaytmasa, container restart bo'ladi.
+    DB connection ham tekshiriladi (deep health), lekin sekin bo'lmasligi uchun timeout bilan.
+    """
+    health = {
+        "status": "ok",
+        "uptime_seconds": int(_time.time() - _API_START_TIME),
+    }
+
+    # Deep check: MongoDB ping (1s timeout — bot to'xtab qolmasligi uchun)
+    try:
+        from src.database import client as _db_client
+        await asyncio.wait_for(_db_client.admin.command('ping'), timeout=1.0)
+        health["mongo"] = "ok"
+    except Exception as e:
+        health["mongo"] = f"error: {str(e)[:80]}"
+        health["status"] = "degraded"
+
+    # Groq aktiv kalitlar soni
+    try:
+        from src.services.groq_service import groq_service as _gs
+        active = sum(1 for k in _gs.keys_stats if k.status == "active")
+        total = len(_gs.keys_stats)
+        health["groq_keys"] = f"{active}/{total}"
+        health["groq_model"] = _gs.active_model
+        if active == 0:
+            health["status"] = "degraded"
+    except Exception:
+        pass
+
+    status_code = 200 if health["status"] == "ok" else 503
+    return set_cors(web.json_response(health, status=status_code))
 
 
 # ═══════════════════════════════════════

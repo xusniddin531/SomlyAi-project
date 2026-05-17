@@ -90,46 +90,154 @@ class KeyStats:
     admin_alerted: bool = False  # True if admin already received alert for this key being disabled
 
 
+# ═══════════════════════════════════════
+# MODEL FALLBACK CHAIN
+# ═══════════════════════════════════════
+# Groq tashkilot darajasidagi TPD (Tokens Per Day) limit haqida:
+#   - llama-3.3-70b-versatile: 100,000 TPD (juda kichik!)
+#   - llama-3.1-8b-instant:    500,000+ TPD (5x ko'p), tezroq, arzonroq
+#   - llama-3.3-70b-instant:   musbat hollarda quality ham yaxshi
+#
+# Asosiy model 429 (rate limit) qaytarsa, ROUTING avtomatik kichik modelga o'tadi
+# va kunlik reset bo'lguncha (00:00 UTC) shu kichikda qoladi.
+MODEL_FALLBACK_CHAIN = [
+    # Tier 1: foydalanuvchi tanlagan (.env'dan)
+    # Tier 2: 70B kichik versiya — quality o'xshash, limit yumshoq
+    "llama-3.3-70b-versatile",
+    # Tier 3: 8B — har doim ishlaydi, 5x token limit
+    "llama-3.1-8b-instant",
+]
+
+
+def _next_fallback_model(current: str) -> str:
+    """Joriy modeldan keyingi (kichikroq) modelni qaytaradi."""
+    # Agar joriy modelni topa olsak, undan keyingisini ber
+    try:
+        # GROQ_MODEL chain'da bo'lmasa, uni boshiga qo'shamiz
+        chain = list(MODEL_FALLBACK_CHAIN)
+        if current and current not in chain:
+            chain.insert(0, current)
+        idx = chain.index(current)
+        if idx + 1 < len(chain):
+            return chain[idx + 1]
+    except (ValueError, AttributeError):
+        pass
+    return "llama-3.1-8b-instant"  # Final fallback har doim 8B
+
+
 class GroqService:
     def __init__(self):
         self.keys_stats = []
         for i, key in enumerate(GROQ_API_KEYS):
             self.keys_stats.append(KeyStats(
-                key=key, 
-                index=i, 
+                key=key,
+                index=i,
                 client=AsyncGroq(api_key=key, timeout=15.0)
             ))
         logger.info(f"GroqService initialized with {len(self.keys_stats)} API key(s)")
 
+        # ─── Active model tracker (avtomatik fallback uchun) ───
+        # Boshlang'ich .env'dan, lekin 429 bo'lsa fallback chain'ga o'tadi
+        self.active_model = GROQ_MODEL
+        self.original_model = GROQ_MODEL  # kelajakda reset uchun
+        self.model_demoted_date = None     # qaysi kunda demotion qilingan (UTC ISO date)
+        self.tpd_estimate = 0              # taxminiy kunlik token ishlatish (faqat statistika uchun)
+        self.tpd_reset_date = None         # ISO date — TPD oxirgi reset bo'lgan kun
+
+    def _maybe_reset_daily(self):
+        """UTC kun o'zgargan bo'lsa model va TPD'ni reset qilamiz."""
+        import datetime as _dt
+        today = _dt.datetime.utcnow().date().isoformat()
+        if self.tpd_reset_date != today:
+            self.tpd_reset_date = today
+            self.tpd_estimate = 0
+            # Modelni asliga qaytaramiz (yangi kun, yangi limit)
+            if self.active_model != self.original_model:
+                logger.info(f"Daily reset: model {self.active_model} → {self.original_model}")
+                self.active_model = self.original_model
+                self.model_demoted_date = None
+
+    def _demote_model(self, reason: str):
+        """429 sabab modelni keyingi (kichikroq) fallback'ga o'tkazamiz."""
+        import datetime as _dt
+        new_model = _next_fallback_model(self.active_model)
+        if new_model == self.active_model:
+            logger.warning(f"Model already at smallest fallback ({self.active_model}); no further demotion.")
+            return
+        old = self.active_model
+        self.active_model = new_model
+        self.model_demoted_date = _dt.datetime.utcnow().date().isoformat()
+        logger.warning(f"MODEL DEMOTION: {old} → {new_model} (reason: {reason})")
+        asyncio.create_task(self.alert_admin(
+            f"⚠️ Groq model auto-fallback: {old} → {new_model}\nSabab: {reason}\nKun boshida ({self.original_model}) ga qaytadi."
+        ))
+
     async def validate_keys_on_startup(self):
-        """Test each key with a minimal API call at startup. Mark invalid ones immediately."""
+        """Test each key with a minimal API call at startup. Mark invalid ones immediately.
+
+        Validatsiya uchun 8B-instant ishlatamiz (har doim mavjud, kichik limit yeydi).
+        Asosiy model bilan tekshirish 70B limit'ini yegan bo'lardi.
+
+        401 kalitlar XOTIRADAN BUTUNLAY OLIB TASHLANADI — rotation orqali
+        ham qaytib urinilmaydi (yaroqsiz kalit yana 401 berishi aniq).
+        """
+        # Tashkilot ID'larini yig'amiz — agar barcha kalitlar bir xil org'da bo'lsa, alert
+        org_ids_seen = set()
+
         for ks in self.keys_stats:
             try:
                 response = await ks.client.chat.completions.create(
                     messages=[{"role": "user", "content": "hi"}],
-                    model=GROQ_MODEL,
+                    model="llama-3.1-8b-instant",  # validation uchun har doim 8B
                     max_tokens=5,
                 )
                 logger.info(f"Key {ks.index+1}: VALID")
             except APIStatusError as e:
                 status_code = getattr(e, 'status_code', 0)
+                err_low = str(e).lower()
                 if status_code == 401:
                     ks.status = "exhausted"
+                    ks.admin_alerted = True  # alert spam'ini oldini olamiz
                     ks.last_error_time = time.time()
                     logger.warning(f"Key {ks.index+1}: INVALID (401) — disabled permanently")
                 elif status_code == 429:
                     # Rate limited but key is valid
                     logger.info(f"Key {ks.index+1}: VALID (rate limited, will cool down)")
+                    # Org ID xatoda ko'rinishi mumkin (org_01...)
+                    import re
+                    m = re.search(r"org_[a-z0-9]+", err_low)
+                    if m:
+                        org_ids_seen.add(m.group(0))
                 else:
                     logger.warning(f"Key {ks.index+1}: Error {status_code} during validation")
             except Exception as e:
                 logger.warning(f"Key {ks.index+1}: Validation error — {str(e)[:100]}")
-        
+
+        # ── 401 kalitlarni xotiradan butunlay olib tashlaymiz ──
+        before = len(self.keys_stats)
+        self.keys_stats = [k for k in self.keys_stats if k.status != "exhausted"]
+        # Index'larni qayta raqamlash (loglar tushunarli bo'lsin)
+        for new_idx, k in enumerate(self.keys_stats):
+            k.index = new_idx
+        removed = before - len(self.keys_stats)
+        if removed > 0:
+            logger.info(f"Removed {removed} invalid key(s) from rotation. {len(self.keys_stats)} active key(s) remain.")
+
         active = sum(1 for ks in self.keys_stats if ks.status == "active")
         logger.info(f"Key validation complete: {active}/{len(self.keys_stats)} active")
-        if active == 0:
+        if active == 0 and len(self.keys_stats) == 0:
             logger.error("WARNING: No valid API keys! All requests will fail.")
-            await self.alert_admin("🚨 BARCHA Groq API kalitlari yaroqsiz! Botga yangi kalitlar kerak.")
+            await self.alert_admin("🚨 BARCHA Groq API kalitlari yaroqsiz! .env faylidagi GROQ_API_KEYS ni yangilang.")
+
+        # ── Tashkilot diversifikatsiyasi haqida ogohlantirish ──
+        # Agar 429 xatolarda bir xil org_id ko'rinsa, alert
+        if len(org_ids_seen) == 1 and len(self.keys_stats) > 1:
+            org_id = list(org_ids_seen)[0]
+            logger.warning(
+                f"All keys appear to be from single org ({org_id}). "
+                f"Groq TPD limits are PER-ORG — rotation won't help. "
+                f"Recommend adding keys from a different Groq account."
+            )
 
     async def alert_admin(self, message: str):
         try:
@@ -181,33 +289,71 @@ class GroqService:
         raise GroqQueueError("All keys are exhausted or cooling. Queueing required.")
 
     async def chat_completion_with_retry(self, messages: List[Dict], **kwargs) -> str:
+        # Kun o'zgargan bo'lsa active_model'ni original'ga qaytaramiz
+        self._maybe_reset_daily()
+
         attempts = 0
         max_retries = len(self.keys_stats) * 2
+        # Joriy aktiv modelni saqlaymiz — agar 429 bo'lsa, demote qilib QAYTA urinamiz
+        model_for_this_call = self.active_model
 
         while attempts < max_retries:
             try:
                 ks = self.get_best_key()
             except GroqQueueError:
-                raise # immediately propagate so handler can queue
+                raise  # immediately propagate so handler can queue
 
             try:
                 response = await ks.client.chat.completions.create(
                     messages=messages,
-                    model=GROQ_MODEL,
+                    model=model_for_this_call,
                     **kwargs
                 )
                 ks.requests_count += 1
                 ks.connection_errors = 0
+                # TPD taxminiy hisoblash (real usage response.usage'da bor)
+                try:
+                    used = getattr(response, 'usage', None)
+                    if used and hasattr(used, 'total_tokens'):
+                        self.tpd_estimate += used.total_tokens
+                except Exception:
+                    pass
                 return response.choices[0].message.content
             except APIStatusError as e:
                 status_code = getattr(e, 'status_code', 0)
                 error_str = str(e)
-                logger.error(f"Groq API Error (key {ks.index+1}): {error_str}")
+                err_low = error_str.lower()
+                logger.error(f"Groq API Error (key {ks.index+1}, model={model_for_this_call}): {error_str[:200]}")
 
-                if status_code == 429 or "rate" in error_str.lower() or status_code == 403:
-                    ks.status = "cooling"
-                    ks.last_error_time = time.time()
-                    log_error(ErrorType.GROQ_RATE_LIMIT, f"Key {ks.index+1} rate limited (cooling)", exception=e)
+                if status_code == 429 or "rate" in err_low or status_code == 403:
+                    org_tpd_hit = (
+                        "tokens per day" in err_low
+                        or "tpd" in err_low
+                        or "daily" in err_low
+                        or "organization" in err_low
+                    )
+                    if org_tpd_hit:
+                        # Avval modelni demote qilib darrov qayta urinamiz
+                        if model_for_this_call == self.active_model:
+                            self._demote_model(f"429 TPD hit: {error_str[:120]}")
+                            model_for_this_call = self.active_model
+                            attempts += 1
+                            continue
+                        # Demote ham qilingan bo'lsa-yu hali ham TPD — kalit kun oxirigacha exhausted
+                        # (Cheksiz cooling/reactivate loop'ni oldini olamiz)
+                        ks.status = "exhausted"
+                        ks.last_error_time = time.time() + 86400  # 24h — kun oxirigacha
+                        log_error(ErrorType.GROQ_RATE_LIMIT, f"Key {ks.index+1} TPD-exhausted (until day reset)", exception=e)
+                        if not ks.admin_alerted:
+                            ks.admin_alerted = True
+                            asyncio.create_task(self.alert_admin(
+                                f"🚨 Key {ks.index+1} kunlik TPD limit yegan. Kun oxirigacha o'chirilgan."
+                            ))
+                    else:
+                        # Odatdagi RPM rate-limit — kalitni cooling
+                        ks.status = "cooling"
+                        ks.last_error_time = time.time()
+                        log_error(ErrorType.GROQ_RATE_LIMIT, f"Key {ks.index+1} rate limited (cooling)", exception=e)
                 elif status_code == 401 or "invalid_api_key" in error_str.lower():
                     ks.status = "exhausted"
                     ks.last_error_time = time.time()
@@ -252,7 +398,7 @@ class GroqService:
             try:
                 stream = await ks.client.chat.completions.create(
                     messages=messages,
-                    model=GROQ_MODEL,
+                    model=self.active_model,  # fallback chain'dan joriy modelni olamiz
                     stream=True,
                     **kwargs
                 )
