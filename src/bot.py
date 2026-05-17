@@ -178,6 +178,10 @@ async def main():
     from src.services.groq_service import groq_service
     await groq_service.validate_keys_on_startup()
 
+    # ── Ensure MongoDB indexes (10-100x faster queries) ──
+    from src.database import ensure_indexes
+    await ensure_indexes()
+
     # ── Start polling ──
     logger.info("🚀 Somly AI Bot ishga tushdi!")
     await bot.set_my_commands([

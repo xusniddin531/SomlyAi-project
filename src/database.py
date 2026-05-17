@@ -55,6 +55,82 @@ broadcasts_collection = db["broadcasts"]
 financial_history_collection = db["financial_history"]
 channel_subscriptions_collection = db["channel_subscriptions"]
 qr_scans_collection = db["qr_scans"]
+
+
+# ═══════════════════════════════════════
+# DATABASE INDEXES (run once at startup)
+# ═══════════════════════════════════════
+async def ensure_indexes():
+    """
+    Create indexes on hot query fields.
+    Idempotent — MongoDB skips if already exists.
+    Without these, scans grow O(N) with collection size.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        # users: lookup by telegram_id (every message)
+        await users_collection.create_index("telegram_id", unique=True, background=True)
+
+        # transactions: most queries filter by telegram_id+created_at or +type+created_at
+        await transactions_collection.create_index(
+            [("telegram_id", 1), ("created_at", -1)], background=True
+        )
+        await transactions_collection.create_index(
+            [("telegram_id", 1), ("type", 1), ("created_at", -1)], background=True
+        )
+        await transactions_collection.create_index(
+            [("telegram_id", 1), ("category", 1)], background=True
+        )
+
+        # debts: lookup active debts by user
+        await debts_collection.create_index(
+            [("telegram_id", 1), ("status", 1)], background=True
+        )
+        await debts_collection.create_index(
+            [("telegram_id", 1), ("created_at", -1)], background=True
+        )
+
+        # reminders: scheduler scans pending reminders
+        await reminders_collection.create_index(
+            [("status", 1), ("scheduled_time", 1)], background=True
+        )
+        await reminders_collection.create_index(
+            [("user_id", 1), ("scheduled_time", -1)], background=True
+        )
+
+        # chat_history: last-N lookup per user
+        await chat_history_collection.create_index(
+            [("user_id", 1), ("timestamp", -1)], background=True
+        )
+
+        # custom_categories: lookup by user
+        await custom_categories_collection.create_index("user_id", background=True)
+
+        # shared_wallets / invites: lookup by user
+        await shared_wallets_collection.create_index(
+            [("members.user_id", 1)], background=True
+        )
+        await invites_collection.create_index(
+            [("invited_user_id", 1), ("status", 1)], background=True
+        )
+
+        # referrals
+        await referrals_collection.create_index("referred_id", unique=True, background=True)
+        await referrals_collection.create_index("referrer_id", background=True)
+
+        # channel_subscriptions
+        await channel_subscriptions_collection.create_index(
+            [("user_id", 1), ("channel_id", 1)], background=True
+        )
+
+        logger.info("MongoDB indexes ensured.")
+    except Exception as e:
+        # Don't fail startup if indexes can't be created — log it.
+        logger.warning(f"ensure_indexes: {e}")
+
+
 # ═══════════════════════════════════════
 # REFERRAL OPERATIONS
 # ═══════════════════════════════════════
@@ -606,10 +682,13 @@ async def get_monthly_income(telegram_id: int, currency: str) -> float:
 
 
 async def get_user_financial_context(telegram_id: int) -> dict:
-    """Returns financial context for the AI prompt."""
+    """Returns financial context for the AI prompt.
+
+    Includes active debts so the AI can answer queries like
+    "kimdan qarzim bor?" without needing a separate report flow.
+    """
     user = await get_user(telegram_id)
-    main_currency = "UZS" # Default
-    # Just take the first active balance currency as main, or UZS
+    main_currency = "UZS"
     balances = user.get("balances", {})
     if "UZS" in balances:
         main_currency = "UZS"
@@ -619,6 +698,27 @@ async def get_user_financial_context(telegram_id: int) -> dict:
     monthly_expense = await get_monthly_expense(telegram_id, main_currency)
     monthly_limit = balances.get(main_currency, {}).get("limit", 0)
 
+    # Active qarzlar — AI promptga uzatamiz, mini app'da qo'shilgan qarzlar ham ko'rinadi
+    active_debts_cursor = debts_collection.find(
+        {"telegram_id": telegram_id, "status": {"$in": ["active", "partial"]}},
+        {"person": 1, "amount": 1, "paid_amount": 1, "currency": 1, "direction": 1, "due_date": 1}
+    ).sort("created_at", -1).limit(15)
+    active_debts = await active_debts_cursor.to_list(length=15)
+
+    debts_compact = []
+    for d in active_debts:
+        remaining = (d.get("amount", 0) or 0) - (d.get("paid_amount", 0) or 0)
+        if remaining <= 0:
+            continue
+        direction = d.get("direction", "bergan")  # "bergan" = men berdim (olishim kerak), "olgan" = men oldim (berishim kerak)
+        debts_compact.append({
+            "person": d.get("person", "?"),
+            "remaining": remaining,
+            "currency": d.get("currency", "UZS"),
+            "direction": direction,
+            "due_date": str(d.get("due_date", "")) if d.get("due_date") else None,
+        })
+
     return {
         "language": user.get("language", "uz"),
         "main_currency": main_currency,
@@ -627,7 +727,8 @@ async def get_user_financial_context(telegram_id: int) -> dict:
         "age": user.get("age", "Noma'lum"),
         "location": user.get("location", "Noma'lum"),
         "region": user.get("region", "Noma'lum"),
-        "full_name": user.get("full_name", "Noma'lum")
+        "full_name": user.get("full_name", "Noma'lum"),
+        "active_debts": debts_compact,  # NEW: bot mini app dagi qarzlarni biladi
     }
 
 async def get_recent_transactions_context(telegram_id: int) -> str:
@@ -2105,9 +2206,11 @@ async def save_chat_message(user_id: int, role: str, content: str, tx_id: str = 
     }
     await chat_history_collection.insert_one(doc)
 
-async def get_chat_history(user_id: int, limit: int = 15) -> list:
+async def get_chat_history(user_id: int, limit: int = 8) -> list:
     """
     Returns recent chat history formatted for AI context.
+    Limit: 8 (was 15) — kamroq tokens, ~1.5x tezroq inference.
+    Sync uchun yetarli: oxirgi 4 ta savol-javob.
     """
     cursor = chat_history_collection.find({"user_id": user_id}).sort("timestamp", -1).limit(limit)
     docs = await cursor.to_list(length=limit)

@@ -6,8 +6,36 @@ Runs using aiohttp with error handling middleware.
 import json
 import os
 import logging
+import time
+import asyncio
 from datetime import datetime
 from aiohttp import web
+
+# ─── Lightweight in-process cache for hot read endpoints ───
+# Key: (endpoint, user_id, ...args). Value: (expires_at, payload_dict)
+# Cleared automatically on WS events that mutate state (see invalidate_user_cache).
+_DASHBOARD_CACHE: dict = {}
+_DASHBOARD_TTL = 10  # seconds — short enough to feel fresh, long enough to absorb spam-refreshes
+
+def _cache_get(key):
+    item = _DASHBOARD_CACHE.get(key)
+    if not item:
+        return None
+    expires_at, payload = item
+    if time.time() > expires_at:
+        _DASHBOARD_CACHE.pop(key, None)
+        return None
+    return payload
+
+def _cache_set(key, payload, ttl=_DASHBOARD_TTL):
+    _DASHBOARD_CACHE[key] = (time.time() + ttl, payload)
+
+def invalidate_user_cache(user_id: int):
+    """Drop all cached entries that belong to this user. Called on transaction/debt mutations."""
+    user_id = int(user_id)
+    for k in list(_DASHBOARD_CACHE.keys()):
+        if k[1] == user_id:
+            _DASHBOARD_CACHE.pop(k, None)
 from src.database import (
     get_user, get_user_all_balances, get_active_debts, transactions_collection,
     get_custom_categories, add_custom_category, delete_custom_category,
@@ -201,34 +229,35 @@ async def get_dashboard_trend(request):
 @routes.get('/api/dashboard')
 async def get_dashboard(request):
     from datetime import datetime, timedelta
-    
+
     user_id = int(request.query.get('user_id', 0))
     if not user_id:
         return set_cors(web.json_response({"error": "Missing user_id"}, status=400))
-        
-    user = await get_user(user_id) or {}
-        
+
     start_date = request.query.get('start')
     end_date = request.query.get('end')
-    
+    return_all = request.query.get('all_txs', 'false').lower() == 'true'
+
     if not start_date or not end_date:
         today = datetime.now()
         start_date = today.replace(day=1).strftime("%Y-%m-%d")
-        # simple trick for end of month
         next_month = today.replace(day=28) + timedelta(days=4)
         end_date = (next_month - timedelta(days=next_month.day)).strftime("%Y-%m-%d")
-        
+
+    # ── Cache check (skip cache when caller asks for full tx list) ──
+    cache_key = ('dashboard', user_id, start_date, end_date, return_all)
+    if not return_all:
+        cached = _cache_get(cache_key)
+        if cached is not None:
+            return set_cors(web.json_response(cached))
+
+    user = await get_user(user_id) or {}
+
     # Get balances
     balances_dict = await get_user_all_balances(user_id)
     balances_list = [{"currency": cur, "amount": data.get("amount", 0), "emoji": data.get("emoji", "💰"), "color": data.get("color", "#30D158"), "title": data.get("title", cur), "limit": data.get("limit")} for cur, data in balances_dict.items()]
     if not balances_list:
         balances_list = [{"currency": "UZS", "amount": 0, "emoji": "💰", "color": "#0A84FF", "title": "So'm"}]
-
-    # Get debts
-    bergan = await get_active_debts(user_id, "bergan")
-    olgan = await get_active_debts(user_id, "olgan")
-    b_total = sum(d["amount"] - d.get("paid_amount",0) for d in bergan)
-    o_total = sum(d["amount"] - d.get("paid_amount",0) for d in olgan)
 
     # Calculate previous period dates for comparison
     try:
@@ -240,18 +269,22 @@ async def get_dashboard(request):
     except Exception:
         prev_sd, prev_ed = start_date, end_date
 
-    # Fetch transactions
-    curr_txs = await transactions_collection.find({
-        "telegram_id": user_id,
-        "date": {"$gte": start_date, "$lte": end_date}
-    }).to_list(length=1000)
-    
-    prev_txs = await transactions_collection.find({
-        "telegram_id": user_id,
-        "date": {"$gte": prev_sd, "$lte": prev_ed}
-    }).to_list(length=1000)
-    
-    return_all = request.query.get('all_txs', 'false').lower() == 'true'
+    # ── Parallel: debts + curr_txs + prev_txs (was sequential — ~2-3x faster now) ──
+    bergan, olgan, curr_txs, prev_txs = await asyncio.gather(
+        get_active_debts(user_id, "bergan"),
+        get_active_debts(user_id, "olgan"),
+        transactions_collection.find({
+            "telegram_id": user_id,
+            "date": {"$gte": start_date, "$lte": end_date}
+        }).to_list(length=1000),
+        transactions_collection.find({
+            "telegram_id": user_id,
+            "date": {"$gte": prev_sd, "$lte": prev_ed}
+        }).to_list(length=1000),
+    )
+    b_total = sum(d["amount"] - d.get("paid_amount", 0) for d in bergan)
+    o_total = sum(d["amount"] - d.get("paid_amount", 0) for d in olgan)
+
     sorted_txs = sorted(curr_txs, key=lambda x: x.get("created_at", ""), reverse=True)
     txs_to_format = sorted_txs if return_all else sorted_txs[:5]
     
@@ -364,6 +397,9 @@ async def get_dashboard(request):
         "transactions": formatted_txs,
         "language": user.get("language", "uz")
     }
+    # Cache only the "compact" view (Mini App default). Full transaction lists vary too much.
+    if not return_all:
+        _cache_set(cache_key, response_data)
     return set_cors(web.json_response(response_data))
 
 

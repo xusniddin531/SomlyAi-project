@@ -460,6 +460,20 @@ class GroqService:
         if user_context:
             monthly_limit = user_context.get('monthly_limit') or 0
             monthly_expense = user_context.get('monthly_expense') or 0
+
+            # Active qarzlar — mini app va bot ikkalasi bilib turishi uchun
+            debts_text = "Yo'q"
+            active_debts = user_context.get('active_debts') or []
+            if active_debts:
+                lines = []
+                for d in active_debts[:10]:  # promptni shishirib yubormaslik
+                    direction = d.get('direction', 'bergan')
+                    # "bergan" = men berdim → olishim kerak | "olgan" = men oldim → berishim kerak
+                    arrow = "olishim kerak" if direction == "bergan" else "berishim kerak"
+                    due = f" (muddat: {d['due_date']})" if d.get('due_date') else ""
+                    lines.append(f"  • {d['person']}dan {d['remaining']:,} {d['currency']} {arrow}{due}")
+                debts_text = "\n" + "\n".join(lines)
+
             context_text = f"""
 FOYDALANUVCHI KONTEKSTI:
 - Ism: {user_context.get("full_name", "Noma'lum") or "Noma'lum"}
@@ -468,6 +482,7 @@ FOYDALANUVCHI KONTEKSTI:
 - Bu oydagi xarajat: {monthly_expense:,}
 - Mavjud balanslar: {balances_text}
 - Kategoriya odatlari: {recent_txs}
+- AKTIV QARZLAR: {debts_text}
 """
 
         habits_text = ""
@@ -508,13 +523,18 @@ QISM 1 — NIYAT ANIQLASH (MAJBURIY)
 
 Har xabar kelganda AVVAL niyatni aniqla:
 1. MOLIYAVIY → kirim/chiqim/qarz kiritish (intent="finance")
-2. HISOBOT → statistika, balans, hisob so'rovi (intent="report")
+2. HISOBOT → statistika, balans, hisob, QARZ so'rovi (intent="report")
    MUHIM: Quyidagi so'zlar HISOBOT:
    - "hisobim", "balansim", "hisob qoldig'i", "pul qancha qoldi"
    - "hozirgi hisobim", "mening hisobim", "necha pul bor"
    - "bu oy qancha sarfladim", "statistika", "hisobot"
    - "qancha xarajat qildim", "daromad/chiqim jami"
+   - **QARZ SO'ROVI**: "kimdan qarzim bor", "kimga qarz berganim", "qarzlarim", "kim menga qarzdor", "qarzlarim qancha"
    Bu so'zlar ADVICE EMAS — REPORT!
+
+   MUHIM: AKTIV QARZLAR ro'yxati yuqorida CONTEXT'da berilgan.
+   Foydalanuvchi qarz haqida so'rasa, sen CONTEXT'dagi AKTIV QARZLAR ro'yxatidan to'g'ridan-to'g'ri javob ber.
+   Bu qarzlar bot orqali ham, MINI APP orqali ham qo'shilgan bo'lishi mumkin — ikkalasi ham CONTEXT da bor.
 3. BOT HAQIDA SAVOL → o'zini tanishtirish (intent="bot_about")
 4. ODDIY SUHBAT → suhbat + yo'naltirish (intent="chat")
 5. MAXFIY SAVOL → himoya javobi (intent="secret")
@@ -735,7 +755,7 @@ FAQAT JSON QAYTAR.
                 messages,
                 response_format={"type": "json_object"},
                 temperature=0.1,
-                max_tokens=1500,
+                max_tokens=800,  # 1500→800: kifoya, javob ~2x tezroq keladi
             )
         except GroqQueueError:
             # Let the caller handle the queueing
