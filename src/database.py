@@ -1631,6 +1631,54 @@ async def get_filtered_segment_data(filters: dict) -> dict:
     if filters.get("interests") and len(filters["interests"]) > 0:
         query["interests"] = {"$in": filters["interests"]}
 
+    # ── Income level filter ──
+    # User'da `income_level` field saqlanmaydi — tx aggregation bilan hisoblanadi.
+    # Levels: "Past" (<2M), "O'rta" (2M-5M), "Yuqori" (>5M) avg monthly UZS.
+    requested_income = filters.get("income_levels") or []
+    if requested_income:
+        requested_set = set(requested_income)
+        # Har user'ning oylik o'rtacha daromadini hisoblaymiz
+        income_pipeline = [
+            {"$match": {"type": "kirim", "currency": "UZS"}},
+            {"$group": {
+                "_id": "$telegram_id",
+                "total": {"$sum": "$amount"},
+                "min_d": {"$min": "$created_at"},
+                "max_d": {"$max": "$created_at"},
+            }},
+        ]
+        income_rows = await transactions_collection.aggregate(income_pipeline).to_list(length=10000)
+        eligible_ids = []
+        from datetime import datetime as _dt
+        for r in income_rows:
+            min_d, max_d = r.get("min_d"), r.get("max_d")
+            if not min_d or not max_d:
+                continue
+            try:
+                days = max(1, (max_d - min_d).days)
+            except Exception:
+                days = 30
+            months = max(1.0, days / 30.0)
+            avg_monthly = (r.get("total") or 0) / months
+            level = "O'rta"
+            if avg_monthly > 5_000_000:
+                level = "Yuqori"
+            elif 0 < avg_monthly < 2_000_000:
+                level = "Past"
+            elif avg_monthly == 0:
+                level = "Noma'lum"
+            if level in requested_set:
+                eligible_ids.append(r["_id"])
+        # Intersect with existing query
+        if not eligible_ids:
+            # Hech kim mos kelmadi — bo'sh qaytaramiz
+            return {
+                "count": 0, "top_regions": [], "avg_income": 0,
+                "top_expense_cat": "Noma'lum", "lang_chart": [], "age_chart": [],
+                "heatmap": [], "users": []
+            }
+        query["telegram_id"] = {"$in": eligible_ids}
+
     # Match users
     matched_cursor = users_collection.find(query, {
         "telegram_id": 1, "full_name": 1, "username": 1, 

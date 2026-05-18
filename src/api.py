@@ -2769,6 +2769,243 @@ async def user_ai_chat_voice(request):
             asyncio.create_task(_cleanup())
 
 
+# ═══════════════════════════════════════
+# ADMIN MINI APP — NEW ENDPOINTS
+# (Bot commandlari o'rniga: /teach, /knowledge, /unteach, /editteach,
+#  /ban, /unban, /admin add/remove, /setwebapp, /setchannel, /change_channel)
+# ═══════════════════════════════════════
+
+# ─── KNOWLEDGE BASE CRUD ───
+
+@routes.get('/api/admin/knowledge')
+async def admin_list_knowledge(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_all_knowledges
+        items = await get_all_knowledges()
+        # Serialize ObjectId / datetime
+        out = []
+        for k in items:
+            out.append({
+                "id": str(k.get("_id", "")),
+                "topic": k.get("topic", ""),
+                "content": k.get("content", ""),
+                "active": bool(k.get("active", True)),
+                "usage_count": int(k.get("usage_count", 0)),
+                "created_by": k.get("created_by"),
+                "created_at": k.get("created_at").isoformat() if k.get("created_at") else None,
+                "updated_at": k.get("updated_at").isoformat() if k.get("updated_at") else None,
+            })
+        return set_cors(web.json_response({"items": out, "total": len(out)}))
+    except Exception as e:
+        logger.error(f"admin knowledge list error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.post('/api/admin/knowledge')
+async def admin_add_knowledge(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        data = await request.json()
+        topic = (data.get('topic') or '').strip()
+        content = (data.get('content') or '').strip()
+        admin_id = int(data.get('admin_id') or 0)
+        if not topic or not content:
+            return set_cors(web.json_response({"error": "topic va content majburiy"}, status=400))
+        from src.database import add_knowledge
+        ok = await add_knowledge(topic, content, admin_id)
+        if not ok:
+            return set_cors(web.json_response({"error": "Bu mavzu allaqachon mavjud (tahrirlash uchun PUT ishlating)"}, status=409))
+        return set_cors(web.json_response({"success": True}))
+    except Exception as e:
+        logger.error(f"admin knowledge add error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.put('/api/admin/knowledge')
+async def admin_update_knowledge(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        data = await request.json()
+        topic = (data.get('topic') or '').strip()
+        content = (data.get('content') or '').strip()
+        active = data.get('active')  # optional bool
+        if not topic:
+            return set_cors(web.json_response({"error": "topic majburiy"}, status=400))
+        from src.database import update_knowledge, set_knowledge_active
+        if content:
+            ok = await update_knowledge(topic, content)
+            if not ok:
+                return set_cors(web.json_response({"error": "Topic not found"}, status=404))
+        if active is not None:
+            await set_knowledge_active(topic, bool(active))
+        return set_cors(web.json_response({"success": True}))
+    except Exception as e:
+        logger.error(f"admin knowledge update error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.delete('/api/admin/knowledge')
+async def admin_delete_knowledge(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        topic = (request.query.get('topic') or '').strip()
+        if not topic:
+            return set_cors(web.json_response({"error": "topic query param majburiy"}, status=400))
+        from src.database import set_knowledge_active
+        ok = await set_knowledge_active(topic, False)
+        if not ok:
+            return set_cors(web.json_response({"error": "Topic not found"}, status=404))
+        return set_cors(web.json_response({"success": True, "archived": True}))
+    except Exception as e:
+        logger.error(f"admin knowledge delete error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+# ─── USER BAN / UNBAN ───
+
+@routes.post('/api/admin/users/{telegram_id}/ban')
+async def admin_ban_user(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        tg_id = int(request.match_info['telegram_id'])
+        from src.database import set_user_blacklist
+        await set_user_blacklist(tg_id, True)
+        invalidate_user_cache(tg_id)
+        return set_cors(web.json_response({"success": True, "banned": True}))
+    except Exception as e:
+        logger.error(f"admin ban error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.post('/api/admin/users/{telegram_id}/unban')
+async def admin_unban_user(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        tg_id = int(request.match_info['telegram_id'])
+        from src.database import set_user_blacklist
+        await set_user_blacklist(tg_id, False)
+        invalidate_user_cache(tg_id)
+        return set_cors(web.json_response({"success": True, "banned": False}))
+    except Exception as e:
+        logger.error(f"admin unban error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+# ─── ADMINS CRUD ───
+
+@routes.get('/api/admin/admins')
+async def admin_list_admins(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import admins_collection
+        items = []
+        async for a in admins_collection.find({}):
+            items.append({
+                "telegram_id": a.get("telegram_id"),
+                "added_at": a.get("added_at").isoformat() if a.get("added_at") else None,
+            })
+        return set_cors(web.json_response({"items": items, "total": len(items)}))
+    except Exception as e:
+        logger.error(f"admin admins list error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.post('/api/admin/admins')
+async def admin_add_admin(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        data = await request.json()
+        tg_id = int(data.get('telegram_id') or 0)
+        if not tg_id:
+            return set_cors(web.json_response({"error": "telegram_id majburiy"}, status=400))
+        from src.database import add_admin
+        ok = await add_admin(tg_id)
+        return set_cors(web.json_response({"success": True, "added": ok}))
+    except Exception as e:
+        logger.error(f"admin add error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.delete('/api/admin/admins/{telegram_id}')
+async def admin_remove_admin(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        tg_id = int(request.match_info['telegram_id'])
+        from src.database import remove_admin
+        ok = await remove_admin(tg_id)
+        return set_cors(web.json_response({"success": True, "removed": ok}))
+    except Exception as e:
+        logger.error(f"admin remove error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+# ─── WEBAPP URL CONFIG ───
+
+@routes.get('/api/admin/webapp-url')
+async def admin_get_webapp_url(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import get_webapp_url
+        url = await get_webapp_url()
+        return set_cors(web.json_response({"url": url or ""}))
+    except Exception as e:
+        logger.error(f"admin get webapp_url error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+@routes.put('/api/admin/webapp-url')
+async def admin_set_webapp_url(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        data = await request.json()
+        url = (data.get('url') or '').strip()
+        if not url.startswith(('http://', 'https://')):
+            return set_cors(web.json_response({"error": "URL https:// yoki http:// bilan boshlanishi kerak"}, status=400))
+        from src.database import set_webapp_url
+        await set_webapp_url(url)
+        return set_cors(web.json_response({"success": True, "url": url}))
+    except Exception as e:
+        logger.error(f"admin set webapp_url error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+# ─── CHANNEL EDIT (by index) ───
+
+@routes.put('/api/admin/channels/by-index/{idx}')
+async def admin_edit_channel_by_index(request):
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        idx = int(request.match_info['idx'])
+        data = await request.json()
+        new_link = (data.get('link') or '').strip()
+        new_name = (data.get('name') or '').strip()
+        if not new_link:
+            return set_cors(web.json_response({"error": "link majburiy"}, status=400))
+        if not new_name:
+            new_name = new_link  # fallback — agar nom berilmagan bo'lsa link nom sifatida
+        from src.database import update_channel_by_index
+        ok = await update_channel_by_index(idx, new_link, new_name)
+        if not ok:
+            return set_cors(web.json_response({"error": f"Index {idx} bo'yicha kanal topilmadi"}, status=404))
+        return set_cors(web.json_response({"success": True}))
+    except Exception as e:
+        logger.error(f"admin edit channel error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
 # ─── REFERRAL ENDPOINTS ───
 
 @routes.get('/api/referrals')

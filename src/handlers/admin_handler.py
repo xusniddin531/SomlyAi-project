@@ -565,99 +565,10 @@ async def cmd_setwebapp(message: Message, bot: Bot):
         await message.answer(f"❌ Xatolik yuz berdi: {str(e)}")
 
 
-@router.message(Command("web"))
-async def cmd_web(message: Message, bot: Bot):
-    if not await check_admin(message.from_user.id, message, bot): return
-    
-    text = (
-        "🌐 <b>Admin Panel</b>\n\n"
-        "Barcha foydalanuvchilar haqidagi (demografik) ma'lumotlarni ko'rish uchun quyidagi manzilga kiring:\n"
-        "👉 http://localhost:8000/admin\n\n"
-        "<b>Login:</b> <code>1342b</code>\n"
-        "<b>Parol:</b> <code>gsk1352</code>"
-    )
-    await message.answer(text, parse_mode="HTML")
-
-
-# ─── DYNAMIC KNOWLEDGE BASE (QISM 8) ───
-
-@router.message(Command("teach"))
-async def cmd_teach(message: Message, bot: Bot):
-    if not await check_admin(message.from_user.id, message, bot): return
-    # format: /teach topic: content
-    text = message.text.replace("/teach", "", 1).strip()
-    if ":" not in text:
-        await message.answer("❌ Xato! Format: /teach [mavzu]: [matn]")
-        return
-        
-    topic, content = text.split(":", 1)
-    topic = topic.strip()
-    content = content.strip()
-    
-    if not topic or not content:
-        await message.answer("❌ Mavzu va matn bo'sh bo'lishi mumkin emas.")
-        return
-        
-    from src.database import add_knowledge
-    success = await add_knowledge(topic, content, message.from_user.id)
-    if success:
-        await message.answer(f"✅ Yangi bilim qo'shildi:\n<b>Mavzu:</b> {topic}", parse_mode="HTML")
-    else:
-        await message.answer(f"❌ '{topic}' mavzusi allaqachon mavjud. Yangilash uchun /editteach ishlating.")
-
-@router.message(Command("knowledge"))
-async def cmd_knowledge(message: Message, bot: Bot):
-    if not await check_admin(message.from_user.id, message, bot): return
-    
-    from src.database import get_all_knowledges
-    knowledges = await get_all_knowledges()
-    
-    if not knowledges:
-        await message.answer("📚 Bilimlar bazasi bo'sh.")
-        return
-        
-    text = f"📚 <b>Bilimlar bazasi ({len(knowledges)} ta):</b>\n\n"
-    for i, k in enumerate(knowledges, 1):
-        status = "✅" if k.get("active") else "❌"
-        usage = k.get("usage_count", 0)
-        text += f"{i}. <code>{k['topic']}</code> {status} ({usage} marta)\n"
-        
-    text += "\n<i>Yangi bilim qo'shish: /teach mavzu: matn</i>\n"
-    text += "<i>O'chirish: /unteach mavzu</i>\n"
-    text += "<i>Tahrirlash: /editteach mavzu: matn</i>"
-    
-    await message.answer(text, parse_mode="HTML")
-
-@router.message(Command("unteach"))
-async def cmd_unteach(message: Message, bot: Bot):
-    if not await check_admin(message.from_user.id, message, bot): return
-    topic = message.text.replace("/unteach", "", 1).strip()
-    if not topic:
-        await message.answer("❌ Xato! Format: /unteach [mavzu]")
-        return
-        
-    from src.database import set_knowledge_active
-    success = await set_knowledge_active(topic, False)
-    if success:
-        await message.answer(f"✅ '{topic}' mavzusi o'chirildi (arxivlandi).")
-    else:
-        await message.answer(f"❌ '{topic}' mavzusi topilmadi.")
-
-@router.message(Command("editteach"))
-async def cmd_editteach(message: Message, bot: Bot):
-    if not await check_admin(message.from_user.id, message, bot): return
-    text = message.text.replace("/editteach", "", 1).strip()
-    if ":" not in text:
-        await message.answer("❌ Xato! Format: /editteach [mavzu]: [yangi matn]")
-        return
-        
-    topic, content = text.split(":", 1)
-    topic = topic.strip()
-    content = content.strip()
-    
-    from src.database import update_knowledge
-    success = await update_knowledge(topic, content)
-    if success:
-        await message.answer(f"✅ '{topic}' mavzusi yangilandi.")
-    else:
-        await message.answer(f"❌ '{topic}' mavzusi topilmadi. Yangi qo'shish uchun /teach ishlating.")
+# /web, /teach, /knowledge, /unteach, /editteach commandlari OLIB TASHLANDI
+# Endi bularning hammasi Admin Mini App orqali boshqariladi:
+#   • /web        → Admin Mini App'ning o'zi (/admin route)
+#   • /teach      → Mini App'da "Bilimlar bazasi" sahifasi (REST: POST /api/admin/knowledge)
+#   • /knowledge  → Mini App'da "Bilimlar bazasi" sahifasi (REST: GET /api/admin/knowledge)
+#   • /unteach    → Mini App'da bilim kartochkasidagi "O'chirish" tugmasi (REST: DELETE)
+#   • /editteach  → Mini App'da bilim kartochkasidagi "Tahrirlash" tugmasi (REST: PUT)

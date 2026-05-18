@@ -10,6 +10,8 @@ import AdminBroadcast from './pages/AdminBroadcast';
 import AdminAIChat from './pages/AdminAIChat';
 import AdminSpending from './pages/AdminSpending';
 import AdminSettings from './pages/AdminSettings';
+import AdminKnowledge from './pages/AdminKnowledge';
+import AdminQuickActions from './pages/AdminQuickActions';
 import './admin.css';
 
 const AdminApp = () => {
@@ -88,6 +90,8 @@ const AdminApp = () => {
       case 'broadcast': return <AdminBroadcast token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'ai-chat': return <AdminAIChat token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'spending': return <AdminSpending token={token} navigateTo={handleNavigate} {...pageProps} />;
+      case 'knowledge': return <AdminKnowledge token={token} navigateTo={handleNavigate} {...pageProps} />;
+      case 'quick-actions': return <AdminQuickActions token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'settings': return <AdminSettings token={token} onThemeToggle={handleThemeToggle} isDark={isDark} navigateTo={handleNavigate} {...pageProps} />;
       default: return <AdminDashboard token={token} navigateTo={handleNavigate} {...pageProps} />;
     }
