@@ -418,13 +418,13 @@ mini_app_actions QOIDA: faqat MINI APP'da va aniq so'rovda bo'sh emas. Bot suhba
         except GeminiServerError:
             return {"intent": "error", "error_key": "err_ai_down"}
         except Exception as e:
-            log_error(ErrorType.GROQ_SERVER, f"Unexpected Gemini error: {str(e)}", exception=e)
+            log_error(ErrorType.GEMINI_SERVER, f"Unexpected Gemini error: {str(e)}", exception=e)
             return {"intent": "error", "error_key": "err_ai_down"}
 
         try:
             return json.loads(response)
         except json.JSONDecodeError:
-            log_error(ErrorType.GROQ_JSON_PARSE, f"Invalid JSON from Gemini: {response[:200]}")
+            log_error(ErrorType.GEMINI_JSON_PARSE, f"Invalid JSON from Gemini: {response[:200]}")
             return {"intent": "error", "error_key": "err_ai_json"}
 
     # ═══════════════════════════════════════
