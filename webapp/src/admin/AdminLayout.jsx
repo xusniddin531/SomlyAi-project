@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart3, Users, Target, Megaphone, Send, Bot, TrendingUp, Settings, Moon, Sun, LogOut, Brain, Zap } from 'lucide-react';
+import { BarChart3, Users, Megaphone, Send, TrendingUp, Settings, Moon, Sun, LogOut, Brain, Zap } from 'lucide-react';
 
+// Nav reorganized per user request:
+// - "Foydalanuvchilar" + "Segmentatsiya" → birlashtirildi (people = unified page with tabs)
+// - "AI Chat" → sidebardan olib tashlandi (floating button bo'ldi, AdminAIChatFloating)
+// - Qolgani: Dashboard, Kanallar, Broadcast, Sozlamalar + bonus (Knowledge, QuickActions, Spending)
 const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-  { id: 'users', label: 'Foydalanuvchilar', icon: Users },
-  { id: 'segments', label: 'Segmentatsiya', icon: Target },
+  { id: 'people', label: 'Foydalanuvchilar', icon: Users },
   { id: 'spending', label: 'Xarajat Tahlili', icon: TrendingUp },
   { id: 'channels', label: 'Kanallar', icon: Megaphone },
   { id: 'broadcast', label: 'Broadcast', icon: Send },
   { id: 'knowledge', label: 'AI Bilimlar', icon: Brain },
   { id: 'quick-actions', label: 'Tezkor Amallar', icon: Zap },
-  { id: 'ai-chat', label: 'AI Chat', icon: Bot },
   { id: 'settings', label: 'Sozlamalar', icon: Settings },
 ];
 

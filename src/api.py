@@ -2770,6 +2770,98 @@ async def user_ai_chat_voice(request):
 
 
 # ═══════════════════════════════════════
+# ADMIN BROADCAST — AI WIZARD (reklama matni tayyorlash)
+# ═══════════════════════════════════════
+
+@routes.post('/api/admin/broadcast/ai-suggest')
+async def admin_broadcast_ai_suggest(request):
+    """
+    AI yordamida reklama matnini tayyorlash.
+    Admin wizard'da bosqichma-bosqich javob beradi:
+      goal, audience, tone, key_points, language
+    AI shu kontekstdan reklama matnini yaratadi.
+
+    Request body:
+      {
+        goal: "Yangi xizmat e'loni" | "Promo kod" | "Eslatma" | "Maslahat" | str,
+        audience: "Hammasi" | "Yoshlar" | "Aktiv foydalanuvchilar" | str,
+        tone: "Do'stona" | "Rasmiy" | "Hayajonli" | str,
+        key_points: str (free text — admin nimani aytmoqchi),
+        language: "uz" | "ru" | "en"
+      }
+    Response:
+      { text: str, suggestions: [str, ...] }   # 1 ta asosiy + 2 ta variant
+    """
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        data = await request.json()
+        goal = (data.get('goal') or '').strip()
+        audience = (data.get('audience') or 'Hammasi').strip()
+        tone = (data.get('tone') or "Do'stona").strip()
+        key_points = (data.get('key_points') or '').strip()
+        language = (data.get('language') or 'uz').strip()
+
+        if not key_points:
+            return set_cors(web.json_response({"error": "key_points majburiy"}, status=400))
+
+        lang_name = {'uz': "O'zbek", 'ru': "Русский", 'en': "English"}.get(language, "O'zbek")
+
+        system_prompt = f"""Sen Somly AI broadcast yordamchisisan. Admin moliyaviy bot foydalanuvchilariga reklama/xabar yubormoqchi.
+
+JAVOB TILI: {lang_name} — barcha matnlar STRICTLY shu tilda.
+
+VAZIFA: Admin bergan ma'lumotdan {3} ta reklama matni variantini yarat:
+  - Birinchi: eng yaxshi (asosiy variant)
+  - 2 va 3: alternative variantlar (boshqacha uslub)
+
+ADMIN MA'LUMOTI:
+- Maqsad: {goal or 'umumiy xabar'}
+- Auditoriya: {audience}
+- Uslub: {tone}
+- Asosiy fikrlar: {key_points}
+
+QOIDALAR:
+- Har bir variant MAKSIMAL 4-5 gap. Lekciya yo'q.
+- Emoji o'rinli (2-4 ta). Markdown bold (*) o'rinli.
+- Telegramda yuboriladi — HTML/markdown ishlatma, faqat oddiy matn + emoji.
+- Auditoriyaga mos so'zlash (yoshlar → do'stona, kattalar → rasmiy).
+- Foydalanuvchini harakatga undash (CTA): "Hozir boshlang", "Mini App'da ko'ring" va h.k.
+
+FAQAT JSON QAYTAR:
+{{
+  "main": "Asosiy reklama matni",
+  "alternatives": ["Variant 2 matni", "Variant 3 matni"]
+}}
+"""
+        from src.services.gemini_service import gemini_service as _gs
+        try:
+            response = await _gs.chat_completion_with_retry(
+                [{"role": "system", "content": system_prompt},
+                 {"role": "user", "content": "Iltimos, 3 ta reklama matni variantini taklif qiling."}],
+                response_format={"type": "json_object"},
+                temperature=0.7,
+                max_tokens=900,
+            )
+            parsed = json.loads(response)
+            main = parsed.get('main') or ''
+            alts = parsed.get('alternatives') or []
+            return set_cors(web.json_response({
+                "text": main,
+                "suggestions": [s for s in alts if s][:2],
+            }))
+        except Exception as e:
+            logger.error(f"broadcast ai-suggest error: {e}")
+            return set_cors(web.json_response({
+                "error": "AI hozir javob bera olmadi. Keyinroq urinib ko'ring."
+            }, status=503))
+
+    except Exception as e:
+        logger.error(f"/api/admin/broadcast/ai-suggest route error: {e}")
+        return set_cors(web.json_response({"error": "Internal error"}, status=500))
+
+
+# ═══════════════════════════════════════
 # ADMIN MINI APP — NEW ENDPOINTS
 # (Bot commandlari o'rniga: /teach, /knowledge, /unteach, /editteach,
 #  /ban, /unban, /admin add/remove, /setwebapp, /setchannel, /change_channel)

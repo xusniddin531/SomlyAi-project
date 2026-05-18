@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Send, AlertCircle, CheckCircle, Filter, Users, User, Clock, FileText, Target } from 'lucide-react';
+import { Send, AlertCircle, CheckCircle, Filter, Users, User, Clock, FileText, Target, Sparkles } from 'lucide-react';
+import BroadcastAIWizard from '../components/BroadcastAIWizard';
 
 const AdminBroadcast = ({ token, initialFilters = null }) => {
   const [text, setText] = useState('');
   const [mode, setMode] = useState(initialFilters ? 'segment' : 'all');
   const [singleUserId, setSingleUserId] = useState('');
+  const [aiWizardOpen, setAiWizardOpen] = useState(false);
   
   // Job state
   const [jobId, setJobId] = useState(null);
@@ -137,14 +139,60 @@ const AdminBroadcast = ({ token, initialFilters = null }) => {
             />
           )}
 
+          {/* AI Wizard CTA — textarea ustida */}
+          <div style={{
+            marginTop: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '10px',
+            flexWrap: 'wrap',
+          }}>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--admin-text-secondary)' }}>
+              Xabar matni
+            </label>
+            <button
+              type="button"
+              onClick={() => setAiWizardOpen(true)}
+              disabled={isSending}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '7px 12px',
+                borderRadius: '9px',
+                background: 'linear-gradient(135deg, #8B5CF6, #6366F1)',
+                color: '#fff',
+                border: 'none',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: isSending ? 'not-allowed' : 'pointer',
+                opacity: isSending ? 0.6 : 1,
+                boxShadow: '0 2px 8px rgba(139,92,246,0.35)',
+              }}
+            >
+              <Sparkles size={14} /> AI yordamida yozish
+            </button>
+          </div>
+
           <textarea
-            className="broadcast-input mt20"
-            placeholder="Xabar matnini yozing..."
+            className="broadcast-input mt10"
+            placeholder="Xabar matnini yozing yoki yuqoridagi 'AI yordamida yozish' tugmasini bosing..."
             value={text}
             onChange={e => setText(e.target.value)}
             rows={6}
             disabled={isSending}
           />
+
+          {/* AI Wizard modal */}
+          {aiWizardOpen && (
+            <BroadcastAIWizard
+              token={token}
+              onClose={() => setAiWizardOpen(false)}
+              onSelect={(generatedText) => setText(generatedText)}
+              language="uz"
+            />
+          )}
 
           <div className="broadcast-footer mt20">
             <span className="char-count">{text.length} belgi</span>

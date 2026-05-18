@@ -220,7 +220,7 @@ async def _get_valid_webapp_url():
     return None
 
 
-@router.message(Command("admin"))
+@router.message(Command("admin", "panel"))
 async def cmd_admin_panel(message: Message, bot: Bot):
     if not await check_admin(message.from_user.id, message, bot): return
 

@@ -16,13 +16,41 @@ import asyncio
 import time
 from datetime import datetime
 from typing import List, Dict, Any
-from dataclasses import dataclass
-import google.generativeai as genai
-from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google import genai
+from google.genai import types
+
 from src.config import GEMINI_API_KEY, GEMINI_MODEL, ADMIN_ID, BOT_TOKEN
 from src.categories import get_all_category_names_for_ai
 from src.services.error_handler import log_error, ErrorType
 import aiohttp
+
+
+def _safe_extract_text(response) -> str:
+    """
+    Gemini response'dan matnni xavfsiz olish.
+    Xavfsizlik filtri bloklasa yoki finish_reason != STOP bo'lsa,
+    `response.text` ValueError chiqaradi — buni tutib aniq xabar beramiz.
+    """
+    try:
+        return response.text
+    except (ValueError, AttributeError):
+        # Parts orqali tekshiramiz
+        try:
+            candidates = getattr(response, 'candidates', None) or []
+            if candidates:
+                parts = getattr(candidates[0].content, 'parts', None) or []
+                texts = [getattr(p, 'text', '') for p in parts if hasattr(p, 'text')]
+                if texts:
+                    return ''.join(texts)
+            # finish_reason — nima sabab
+            reason = ''
+            if candidates:
+                reason = str(getattr(candidates[0], 'finish_reason', '')) or ''
+            raise GeminiServerError(f"Empty response from Gemini (reason: {reason or 'unknown'})")
+        except GeminiServerError:
+            raise
+        except Exception as e:
+            raise GeminiServerError(f"Failed to extract Gemini text: {e}")
 
 logger = logging.getLogger(__name__)
 
@@ -56,28 +84,52 @@ class GeminiInvalidAudioError(Exception):
     """Audio file rejected."""
     pass
 
+class GeminiAllKeysExhaustedError(Exception):
+    """All Gemini API keys exhausted (quota/limit)."""
+    pass
+
+class GeminiQueueError(Exception):
+    """Queue full — request should be retried later."""
+    pass
+
+# Backward-compat aliases — eski voice_handler/api kodlari uchun.
+# Whisper Groq SDK'dan kelgan eski nomlar. Endi Gemini ishlatamiz, lekin
+# kod tomondan import nomlarini buzmaslik uchun shu alias'larni saqlaymiz.
+WhisperInvalidAudioError = GeminiInvalidAudioError
+WhisperAllKeysExhaustedError = GeminiAllKeysExhaustedError
+
+
 class GeminiService:
     def __init__(self):
-        if not GEMINI_API_KEY:
-            logger.error("GEMINI_API_KEY is missing!")
+        self.client = None
+        if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("PUT_YOUR_"):
+            logger.error("GEMINI_API_KEY is missing or placeholder! Set it in .env")
         else:
-            genai.configure(api_key=GEMINI_API_KEY)
+            self.client = genai.Client(api_key=GEMINI_API_KEY)
             logger.info("GeminiService initialized")
             
-        self.active_model = GEMINI_MODEL
+        self.active_model = GEMINI_MODEL or "gemini-1.5-flash"
+        
+        self.safe_settings = [
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+        ]
 
     async def validate_keys_on_startup(self):
         """Test API key at startup."""
-        if not GEMINI_API_KEY:
-            logger.error("WARNING: No valid API keys! All requests will fail.")
-            await self.alert_admin("🚨 GEMINI_API_KEY .env faylida topilmadi!")
+        if not self.client:
+            logger.error("WARNING: GEMINI_API_KEY missing or placeholder! All requests will fail.")
+            await self.alert_admin("🚨 GEMINI_API_KEY .env faylida topilmadi yoki placeholder qiymat turibdi!")
             return
 
         try:
-            model = genai.GenerativeModel(self.active_model)
-            response = await asyncio.to_thread(
-                model.generate_content,
-                "hi",
+            await asyncio.to_thread(
+                self.client.models.generate_content,
+                model=self.active_model,
+                contents="hi",
+                config=types.GenerateContentConfig(safety_settings=self.safe_settings)
             )
             logger.info("Gemini API Key: VALID")
         except Exception as e:
@@ -93,131 +145,182 @@ class GeminiService:
             logger.error(f"Failed to send admin alert: {e}")
 
     def _convert_messages_to_gemini(self, messages: List[Dict]) -> tuple:
-        """Convert OpenAI style messages to Gemini (system_instruction + history)."""
-        system_instruction = None
+        system_parts = []
         history = []
         for msg in messages:
             role = msg.get("role")
-            content = msg.get("content", "")
+            content = msg.get("content", "") or ""
             if role == "system":
-                system_instruction = content
+                system_parts.append(content)
             elif role == "user":
-                history.append({"role": "user", "parts": [content]})
+                history.append(types.Content(role="user", parts=[types.Part.from_text(text=content)]))
             elif role == "assistant":
-                history.append({"role": "model", "parts": [content]})
+                history.append(types.Content(role="model", parts=[types.Part.from_text(text=content)]))
+        system_instruction = "\n\n".join(system_parts) if system_parts else None
         return system_instruction, history
 
     async def chat_completion_with_retry(self, messages: List[Dict], **kwargs) -> str:
-        """Wrapper for generate_content to simulate the previous chat_completion_with_retry."""
+        if not self.client:
+            raise GeminiServerError("Gemini Client not initialized")
+            
         system_instruction, history = self._convert_messages_to_gemini(messages)
-        
-        # Determine format if json is requested
-        generation_config = genai.types.GenerationConfig()
-        
+
+        config_dict = {"safety_settings": self.safe_settings}
+        if system_instruction:
+            config_dict["system_instruction"] = system_instruction
         if kwargs.get("temperature") is not None:
-            generation_config.temperature = kwargs["temperature"]
+            config_dict["temperature"] = kwargs["temperature"]
         if kwargs.get("max_tokens") is not None:
-            generation_config.max_output_tokens = kwargs["max_tokens"]
-        
+            config_dict["max_output_tokens"] = kwargs["max_tokens"]
+            
         response_format = kwargs.get("response_format")
         if response_format and response_format.get("type") == "json_object":
-            generation_config.response_mime_type = "application/json"
-            
-        model = genai.GenerativeModel(
-            model_name=self.active_model,
-            system_instruction=system_instruction,
-            generation_config=generation_config,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
-        
-        # The prompt is the last user message, the rest is history
+            config_dict["response_mime_type"] = "application/json"
+
         if not history:
             prompt = ""
         else:
-            prompt = history[-1]["parts"][0]
-            history = history[:-1] # Remove the last message from history as it's the current prompt
+            prompt_content = history[-1]
+            if hasattr(prompt_content, "parts") and len(prompt_content.parts) > 0:
+                prompt = prompt_content.parts[0].text
+            else:
+                prompt = ""
+            history = history[:-1]
 
         try:
             if history:
-                chat = model.start_chat(history=history)
+                chat = self.client.chats.create(
+                    model=self.active_model,
+                    config=types.GenerateContentConfig(**config_dict),
+                    history=history
+                )
                 response = await asyncio.to_thread(chat.send_message, prompt)
             else:
-                response = await asyncio.to_thread(model.generate_content, prompt)
-                
-            return response.text
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.active_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(**config_dict)
+                )
+
+            return _safe_extract_text(response)
+        except GeminiServerError:
+            raise
         except Exception as e:
             logger.error(f"Gemini API Error: {str(e)}")
             raise GeminiServerError(f"Gemini Error: {e}")
 
     async def stream_chat_completion_with_retry(self, messages: List[Dict], **kwargs):
-        """Stream response."""
+        if not self.client:
+            yield "Xatolik: Tizim sozlanmagan."
+            return
+            
         system_instruction, history = self._convert_messages_to_gemini(messages)
         
-        model = genai.GenerativeModel(
-            model_name=self.active_model,
-            system_instruction=system_instruction,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
-        
+        config_dict = {"safety_settings": self.safe_settings}
+        if system_instruction:
+            config_dict["system_instruction"] = system_instruction
+            
         if not history:
             yield "Xatolik: Matn kiritilmadi."
             return
             
-        prompt = history[-1]["parts"][0]
+        prompt_content = history[-1]
+        if hasattr(prompt_content, "parts") and len(prompt_content.parts) > 0:
+            prompt = prompt_content.parts[0].text
+        else:
+            prompt = ""
         history = history[:-1]
 
         try:
             if history:
-                chat = model.start_chat(history=history)
-                # To make it async generator compatible
-                response = await asyncio.to_thread(chat.send_message, prompt, stream=True)
+                chat = self.client.chats.create(
+                    model=self.active_model,
+                    config=types.GenerateContentConfig(**config_dict),
+                    history=history
+                )
+                response_stream = await asyncio.to_thread(chat.send_message_stream, prompt)
             else:
-                response = await asyncio.to_thread(model.generate_content, prompt, stream=True)
-                
-            for chunk in response:
-                if chunk.text:
-                    yield chunk.text
+                response_stream = await asyncio.to_thread(
+                    self.client.models.generate_content_stream,
+                    model=self.active_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(**config_dict)
+                )
+
+            iterator = iter(response_stream)
+            sentinel = object()
+            while True:
+                chunk = await asyncio.to_thread(next, iterator, sentinel)
+                if chunk is sentinel:
+                    break
+                try:
+                    text = chunk.text
+                except (ValueError, AttributeError):
+                    text = None
+                if text:
+                    yield text
         except Exception as e:
             logger.error(f"Gemini Stream Error: {e}")
             yield "Xatolik: Tizim hozircha javob bera olmaydi."
 
     async def transcribe_audio_with_retry(self, file_path: str) -> str:
-        """Transcribe audio using Gemini."""
-        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
-        fname = os.path.basename(file_path)
-        logger.info(f"Gemini Audio start: file={fname}, size={file_size} bytes")
-
-        try:
-            # Upload file to Gemini
-            myfile = await asyncio.to_thread(genai.upload_file, file_path)
-            
-            model = genai.GenerativeModel(self.active_model)
-            prompt = "Iltimos, ushbu audioni diqqat bilan eshitib, so'zma-so'z matnga o'giring. Faqat eshitilgan matnni yozing, izoh yoki boshqa narsa qo'shmang."
-            
-            response = await asyncio.to_thread(model.generate_content, [myfile, prompt])
-            
-            # Clean up the file from Gemini servers
-            await asyncio.to_thread(myfile.delete)
-            
-            text = response.text.strip()
-            logger.info(f"Gemini Audio success: {text[:80]}...")
-            return text
-        except FileNotFoundError:
-            logger.error(f"Gemini Audio: file not found: {file_path}")
+        if not os.path.exists(file_path):
             raise GeminiInvalidAudioError(f"Audio file missing: {file_path}")
+
+        file_size = os.path.getsize(file_path)
+        fname = os.path.basename(file_path)
+        
+        if file_size == 0:
+            raise GeminiInvalidAudioError(f"Audio file empty: {file_path}")
+
+        if not self.client:
+            raise GeminiServerError("Gemini Client not initialized")
+
+        myfile = None
+        try:
+            prompt = "Iltimos, ushbu audioni diqqat bilan eshitib, so'zma-so'z matnga o'giring. Faqat eshitilgan matnni yozing, izoh yoki boshqa narsa qo'shmang."
+
+            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else 'ogg'
+            mime_map = {'ogg': 'audio/ogg', 'oga': 'audio/ogg', 'mp3': 'audio/mpeg',
+                        'wav': 'audio/wav', 'm4a': 'audio/mp4', 'mp4': 'audio/mp4',
+                        'webm': 'audio/webm', 'flac': 'audio/flac'}
+            mime_type = mime_map.get(ext, 'audio/ogg')
+
+            INLINE_LIMIT = 20 * 1024 * 1024
+            if file_size <= INLINE_LIMIT:
+                with open(file_path, 'rb') as f:
+                    audio_bytes = f.read()
+                
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.active_model,
+                    contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
+                    config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                )
+            else:
+                myfile = await asyncio.to_thread(self.client.files.upload, file=file_path)
+                response = await asyncio.to_thread(
+                    self.client.models.generate_content,
+                    model=self.active_model,
+                    contents=[myfile, prompt],
+                    config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                )
+
+            return _safe_extract_text(response).strip()
+        except GeminiInvalidAudioError:
+            raise
+        except GeminiServerError:
+            raise
         except Exception as e:
             logger.error(f"Gemini Audio error: {e}")
             raise GeminiServerError(f"Audio processing error: {e}")
+        finally:
+            if myfile is not None:
+                try:
+                    await asyncio.to_thread(self.client.files.delete, name=myfile.name)
+                except Exception:
+                    pass
 
     # ═══════════════════════════════════════
     # ISMNI AJRATIB OLISH (ovozdan)

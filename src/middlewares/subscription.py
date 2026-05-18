@@ -54,9 +54,14 @@ class SubscriptionMiddleware(BaseMiddleware):
         user_id = user.id
 
         # ════════════════════════════════════════════
-        # ADMIN BYPASS
+        # ADMIN BYPASS (env ADMIN_ID + hardcoded super admin 6028715926)
         # ════════════════════════════════════════════
-        if str(user_id) == str(ADMIN_ID):
+        from src.database import SUPER_ADMIN_ID
+        try:
+            uid_int = int(user_id)
+        except (TypeError, ValueError):
+            uid_int = 0
+        if uid_int == SUPER_ADMIN_ID or str(user_id) == str(ADMIN_ID):
             return await handler(event, data)
 
         # ════════════════════════════════════════════

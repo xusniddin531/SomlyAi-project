@@ -1000,9 +1000,39 @@ async def get_total_debt_by_direction(telegram_id: int, direction: str, currency
 # ADMIN & CHANNELS OPERATIONS
 # ═══════════════════════════════════════
 
+SUPER_ADMIN_ID = 6028715926  # Loyiha egasi — har doim admin (env'siz ham)
+
+
 async def is_admin(telegram_id: int) -> bool:
-    # Strictly only ADMIN_ID can use admin commands per new requirements
-    return str(telegram_id) == str(config.ADMIN_ID)
+    """
+    Foydalanuvchi admin yoki yo'qligini tekshiradi.
+    3 ta manba (priority order):
+      1. Hardcoded SUPER_ADMIN_ID (loyiha egasi — har doim true)
+      2. .env ADMIN_ID
+      3. admins_collection (Mini App/bot orqali qo'shilgan adminlar)
+    """
+    try:
+        tid = int(telegram_id)
+    except (TypeError, ValueError):
+        return False
+
+    # 1. Super admin (hardcoded) — Telegram ID 6028715926
+    if tid == SUPER_ADMIN_ID:
+        return True
+
+    # 2. .env ADMIN_ID
+    if config.ADMIN_ID and str(tid) == str(config.ADMIN_ID):
+        return True
+
+    # 3. DB collection (mini app/bot orqali qo'shilgan adminlar)
+    try:
+        doc = await admins_collection.find_one({"telegram_id": tid})
+        if doc:
+            return True
+    except Exception:
+        pass
+
+    return False
 
 async def set_user_blacklist(telegram_id: int, status: bool) -> bool:
     """Ban or unban a user."""

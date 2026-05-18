@@ -2,16 +2,17 @@ import React, { useState, useEffect } from 'react';
 import PinLock from './PinLock';
 import AdminLayout from './AdminLayout';
 import AdminDashboard from './pages/AdminDashboard';
-import AdminUsers from './pages/AdminUsers';
-import AdminSegments from './pages/AdminSegments';
 import AdminChannels from './pages/AdminChannels';
 import AdminChannelDetail from './pages/AdminChannelDetail';
 import AdminBroadcast from './pages/AdminBroadcast';
-import AdminAIChat from './pages/AdminAIChat';
 import AdminSpending from './pages/AdminSpending';
 import AdminSettings from './pages/AdminSettings';
 import AdminKnowledge from './pages/AdminKnowledge';
 import AdminQuickActions from './pages/AdminQuickActions';
+// AdminPeople ichida AdminUsers + AdminSegments reuse qilinadi (tablar bilan)
+import AdminPeople from './pages/AdminPeople';
+// AI Chat endi alohida sahifa emas — floating button (har sahifada ko'rinadi)
+import AdminAIChatFloating from './components/AdminAIChatFloating';
 import './admin.css';
 
 const AdminApp = () => {
@@ -83,12 +84,16 @@ const AdminApp = () => {
   const renderPage = () => {
     switch (activePage) {
       case 'dashboard': return <AdminDashboard token={token} navigateTo={handleNavigate} {...pageProps} />;
-      case 'users': return <AdminUsers token={token} navigateTo={handleNavigate} {...pageProps} />;
-      case 'segments': return <AdminSegments token={token} navigateTo={handleNavigate} {...pageProps} />;
+      // Unified People sahifa (eski 'users' va 'segments' route'lari shu yerga keladi)
+      case 'people':
+      case 'users':
+      case 'segments':
+        return <AdminPeople token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'channels': return <AdminChannels token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'channel-stats': return <AdminChannelDetail token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'broadcast': return <AdminBroadcast token={token} navigateTo={handleNavigate} {...pageProps} />;
-      case 'ai-chat': return <AdminAIChat token={token} navigateTo={handleNavigate} {...pageProps} />;
+      // 'ai-chat' endi alohida sahifa emas — floating button. Eski URL'lar dashboard'ga qaytadi.
+      case 'ai-chat': return <AdminDashboard token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'spending': return <AdminSpending token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'knowledge': return <AdminKnowledge token={token} navigateTo={handleNavigate} {...pageProps} />;
       case 'quick-actions': return <AdminQuickActions token={token} navigateTo={handleNavigate} {...pageProps} />;
@@ -98,13 +103,17 @@ const AdminApp = () => {
   };
 
   return (
-    <AdminLayout
-      activePage={activePage}
-      onNavigate={handleNavigate}
-      onLogout={handleLogout}
-    >
-      {renderPage()}
-    </AdminLayout>
+    <>
+      <AdminLayout
+        activePage={activePage}
+        onNavigate={handleNavigate}
+        onLogout={handleLogout}
+      >
+        {renderPage()}
+      </AdminLayout>
+      {/* Floating AI Chat — har sahifada o'ng past burchakda ko'rinadi */}
+      <AdminAIChatFloating token={token} />
+    </>
   );
 };
 

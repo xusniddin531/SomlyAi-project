@@ -24,7 +24,7 @@ from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
 from src.services.gemini_service import (
-    gemini_service, GeminiServerError, GeminiServerError,
+    gemini_service, GeminiServerError,
     WhisperInvalidAudioError, WhisperAllKeysExhaustedError,
 )
 from src.handlers.message_handler import handle_transaction_text
