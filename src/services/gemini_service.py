@@ -14,12 +14,13 @@ import os
 import logging
 import asyncio
 import time
+import itertools
 from datetime import datetime
 from typing import List, Dict, Any
 from google import genai
 from google.genai import types
 
-from src.config import GEMINI_API_KEY, GEMINI_MODEL, ADMIN_ID, BOT_TOKEN
+from src.config import GEMINI_API_KEYS, GEMINI_MODEL, ADMIN_ID, BOT_TOKEN
 from src.categories import get_all_category_names_for_ai
 from src.services.error_handler import log_error, ErrorType
 import aiohttp
@@ -101,13 +102,20 @@ WhisperAllKeysExhaustedError = GeminiAllKeysExhaustedError
 
 class GeminiService:
     def __init__(self):
-        self.client = None
-        if not GEMINI_API_KEY or GEMINI_API_KEY.startswith("PUT_YOUR_"):
-            logger.error("GEMINI_API_KEY is missing or placeholder! Set it in .env")
+        self.clients = []
+        if not GEMINI_API_KEYS or len(GEMINI_API_KEYS) == 0:
+            logger.error("GEMINI_API_KEYS is empty! Set GEMINI_API_KEY in .env")
         else:
-            self.client = genai.Client(api_key=GEMINI_API_KEY)
-            logger.info("GeminiService initialized")
+            for key in GEMINI_API_KEYS:
+                if key and not key.startswith("PUT_YOUR_"):
+                    self.clients.append(genai.Client(api_key=key))
             
+            if not self.clients:
+                logger.error("No valid GEMINI_API_KEY found!")
+            else:
+                logger.info(f"GeminiService initialized with {len(self.clients)} keys")
+                
+        self.client_cycle = itertools.cycle(self.clients) if self.clients else None
         self.active_model = GEMINI_MODEL or "gemini-2.5-flash"
         
         self.safe_settings = [
@@ -117,24 +125,36 @@ class GeminiService:
             types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
         ]
 
+    def _get_next_client(self):
+        if not self.client_cycle:
+            return None
+        return next(self.client_cycle)
+
     async def validate_keys_on_startup(self):
         """Test API key at startup."""
-        if not self.client:
+        if not self.clients:
             logger.error("WARNING: GEMINI_API_KEY missing or placeholder! All requests will fail.")
             await self.alert_admin("🚨 GEMINI_API_KEY .env faylida topilmadi yoki placeholder qiymat turibdi!")
             return
 
-        try:
-            await asyncio.to_thread(
-                self.client.models.generate_content,
-                model=self.active_model,
-                contents="hi",
-                config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-            )
-            logger.info("Gemini API Key: VALID")
-        except Exception as e:
-            logger.warning(f"Validation error: {e}")
-            await self.alert_admin(f"🚨 Gemini API ishlamayapti: {str(e)[:200]}")
+        valid_keys = 0
+        for i in range(len(self.clients)):
+            client = self._get_next_client()
+            try:
+                await asyncio.to_thread(
+                    client.models.generate_content,
+                    model=self.active_model,
+                    contents="hi",
+                    config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                )
+                valid_keys += 1
+            except Exception as e:
+                logger.warning(f"Validation error for a key: {e}")
+        
+        if valid_keys > 0:
+            logger.info(f"Gemini API Keys: {valid_keys} VALID keys")
+        else:
+            await self.alert_admin(f"🚨 Barcha Gemini API kalitlari ishlamayapti yoki limitdan o'tgan!")
 
     async def alert_admin(self, message: str):
         try:
@@ -160,7 +180,7 @@ class GeminiService:
         return system_instruction, history
 
     async def chat_completion_with_retry(self, messages: List[Dict], **kwargs) -> str:
-        if not self.client:
+        if not self.clients:
             raise GeminiServerError("Gemini Client not initialized")
             
         system_instruction, history = self._convert_messages_to_gemini(messages)
@@ -187,31 +207,40 @@ class GeminiService:
                 prompt = ""
             history = history[:-1]
 
-        try:
-            if history:
-                chat = self.client.chats.create(
-                    model=self.active_model,
-                    config=types.GenerateContentConfig(**config_dict),
-                    history=history
-                )
-                response = await asyncio.to_thread(chat.send_message, prompt)
-            else:
-                response = await asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=self.active_model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(**config_dict)
-                )
+        last_exception = None
+        for _ in range(len(self.clients)):
+            client = self._get_next_client()
+            try:
+                if history:
+                    chat = client.chats.create(
+                        model=self.active_model,
+                        config=types.GenerateContentConfig(**config_dict),
+                        history=history
+                    )
+                    response = await asyncio.to_thread(chat.send_message, prompt)
+                else:
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=self.active_model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(**config_dict)
+                    )
 
-            return _safe_extract_text(response)
-        except GeminiServerError:
-            raise
-        except Exception as e:
-            logger.error(f"Gemini API Error: {str(e)}")
-            raise GeminiServerError(f"Gemini Error: {e}")
+                return _safe_extract_text(response)
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning(f"Key rate limited (429), switching to next key. Error: {e}")
+                    last_exception = e
+                    continue
+                else:
+                    logger.error(f"Gemini API Error: {e}")
+                    raise GeminiServerError(f"Gemini Error: {e}")
+                    
+        raise GeminiAllKeysExhaustedError(f"All keys exhausted or rate limited. Last error: {last_exception}")
 
     async def stream_chat_completion_with_retry(self, messages: List[Dict], **kwargs):
-        if not self.client:
+        if not self.clients:
             yield "Xatolik: Tizim sozlanmagan."
             return
             
@@ -232,9 +261,11 @@ class GeminiService:
             prompt = ""
         history = history[:-1]
 
+        # Streaming does not retry easily due to generator nature, so we just pick the next client once.
+        client = self._get_next_client()
         try:
             if history:
-                chat = self.client.chats.create(
+                chat = client.chats.create(
                     model=self.active_model,
                     config=types.GenerateContentConfig(**config_dict),
                     history=history
@@ -242,7 +273,7 @@ class GeminiService:
                 response_stream = await asyncio.to_thread(chat.send_message_stream, prompt)
             else:
                 response_stream = await asyncio.to_thread(
-                    self.client.models.generate_content_stream,
+                    client.models.generate_content_stream,
                     model=self.active_model,
                     contents=prompt,
                     config=types.GenerateContentConfig(**config_dict)
@@ -274,53 +305,59 @@ class GeminiService:
         if file_size == 0:
             raise GeminiInvalidAudioError(f"Audio file empty: {file_path}")
 
-        if not self.client:
+        if not self.clients:
             raise GeminiServerError("Gemini Client not initialized")
 
-        myfile = None
-        try:
-            prompt = "Iltimos, ushbu audioni diqqat bilan eshitib, so'zma-so'z matnga o'giring. Faqat eshitilgan matnni yozing, izoh yoki boshqa narsa qo'shmang."
+        prompt = "Iltimos, ushbu audioni diqqat bilan eshitib, so'zma-so'z matnga o'giring. Faqat eshitilgan matnni yozing, izoh yoki boshqa narsa qo'shmang."
+        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else 'ogg'
+        mime_map = {'ogg': 'audio/ogg', 'oga': 'audio/ogg', 'mp3': 'audio/mpeg',
+                    'wav': 'audio/wav', 'm4a': 'audio/mp4', 'mp4': 'audio/mp4',
+                    'webm': 'audio/webm', 'flac': 'audio/flac'}
+        mime_type = mime_map.get(ext, 'audio/ogg')
+        INLINE_LIMIT = 20 * 1024 * 1024
 
-            ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else 'ogg'
-            mime_map = {'ogg': 'audio/ogg', 'oga': 'audio/ogg', 'mp3': 'audio/mpeg',
-                        'wav': 'audio/wav', 'm4a': 'audio/mp4', 'mp4': 'audio/mp4',
-                        'webm': 'audio/webm', 'flac': 'audio/flac'}
-            mime_type = mime_map.get(ext, 'audio/ogg')
+        last_exception = None
+        for _ in range(len(self.clients)):
+            client = self._get_next_client()
+            myfile = None
+            try:
+                if file_size <= INLINE_LIMIT:
+                    with open(file_path, 'rb') as f:
+                        audio_bytes = f.read()
+                    
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=self.active_model,
+                        contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
+                        config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                    )
+                else:
+                    myfile = await asyncio.to_thread(client.files.upload, file=file_path)
+                    response = await asyncio.to_thread(
+                        client.models.generate_content,
+                        model=self.active_model,
+                        contents=[myfile, prompt],
+                        config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                    )
 
-            INLINE_LIMIT = 20 * 1024 * 1024
-            if file_size <= INLINE_LIMIT:
-                with open(file_path, 'rb') as f:
-                    audio_bytes = f.read()
-                
-                response = await asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=self.active_model,
-                    contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
-                    config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-                )
-            else:
-                myfile = await asyncio.to_thread(self.client.files.upload, file=file_path)
-                response = await asyncio.to_thread(
-                    self.client.models.generate_content,
-                    model=self.active_model,
-                    contents=[myfile, prompt],
-                    config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-                )
-
-            return _safe_extract_text(response).strip()
-        except GeminiInvalidAudioError:
-            raise
-        except GeminiServerError:
-            raise
-        except Exception as e:
-            logger.error(f"Gemini Audio error: {e}")
-            raise GeminiServerError(f"Audio processing error: {e}")
-        finally:
-            if myfile is not None:
-                try:
-                    await asyncio.to_thread(self.client.files.delete, name=myfile.name)
-                except Exception:
-                    pass
+                return _safe_extract_text(response).strip()
+            except Exception as e:
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    logger.warning(f"Audio transcription rate limited (429), switching to next key. Error: {e}")
+                    last_exception = e
+                    continue
+                else:
+                    logger.error(f"Gemini Audio error: {e}")
+                    raise GeminiServerError(f"Audio processing error: {e}")
+            finally:
+                if myfile is not None:
+                    try:
+                        await asyncio.to_thread(client.files.delete, name=myfile.name)
+                    except Exception:
+                        pass
+                        
+        raise GeminiAllKeysExhaustedError(f"All keys exhausted for audio. Last error: {last_exception}")
 
     # ═══════════════════════════════════════
     # ISMNI AJRATIB OLISH (ovozdan)
@@ -516,7 +553,7 @@ mini_app_actions QOIDA: faqat MINI APP'da va aniq so'rovda bo'sh emas. Bot suhba
                 messages,
                 response_format={"type": "json_object"},
                 temperature=0.1,
-                max_tokens=800,
+                max_tokens=1500,
             )
         except GeminiServerError:
             return {"intent": "error", "error_key": "err_ai_down"}
