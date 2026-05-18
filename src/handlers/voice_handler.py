@@ -117,17 +117,17 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         try:
             transcribed_text = await gemini_service.transcribe_audio_with_retry(local_path)
         except WhisperAllKeysExhaustedError as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"All Gemini keys exhausted for audio", user_id, e)
-            await status_msg.edit_text(t(lang, "err_ai_down"))
+            # Bitta kalit Free Tier limitiga urindi (retry+backoff'dan keyin ham) —
+            # "biroz kuting" ko'rsatamiz, "ishlamayapti" emas.
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Gemini key rate limited for audio after retries", user_id, e)
+            await status_msg.edit_text(t(lang, "err_ai_busy"))
             return
         except WhisperInvalidAudioError as e:
             log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Gemini Whisper", user_id, e)
             await status_msg.edit_text(t(lang, "voice_bad_format"))
             return
-        except GeminiServerError:
-            await status_msg.edit_text(t(lang, "err_ai_busy"))
-            return
-        except GeminiServerError:
+        except GeminiServerError as e:
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Gemini server error on audio", user_id, e)
             await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except Exception as e:

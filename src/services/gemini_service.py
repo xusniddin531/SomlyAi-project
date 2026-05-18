@@ -26,6 +26,51 @@ from src.services.error_handler import log_error, ErrorType
 import aiohttp
 
 
+def _try_repair_truncated_json(raw: str):
+    """
+    Uzilib qolgan JSON'ni qutqarish.
+    Gemini max_tokens'da javobni kesib qo'ysa, oxiri buzilgan bo'ladi.
+    Strategiya: birinchi `{` dan boshlab, brace balansini kuzatib boramiz
+    va string ichida bo'lmagan oxirgi to'liq yopilgan `}` gacha kesamiz.
+    """
+    if not raw or not isinstance(raw, str):
+        return None
+    start = raw.find('{')
+    if start < 0:
+        return None
+    depth = 0
+    in_string = False
+    escape = False
+    last_complete = -1
+    for i in range(start, len(raw)):
+        ch = raw[i]
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                last_complete = i
+                break
+    if last_complete < 0:
+        return None
+    candidate = raw[start:last_complete + 1]
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+
+
 def _safe_extract_text(response) -> str:
     """
     Gemini response'dan matnni xavfsiz olish.
@@ -207,37 +252,49 @@ class GeminiService:
                 prompt = ""
             history = history[:-1]
 
+        # Free Tier 5 req/min => bitta kalit kvotasi 12 sekundda yangilanadi.
+        # 1 kalit bo'lsa ham, 429 dan keyin kutib qayta urinamiz.
+        BACKOFF_SECONDS = [13, 20]  # MAX_CYCLES = 1 + len(BACKOFF_SECONDS) = 3
         last_exception = None
-        for _ in range(len(self.clients)):
-            client = self._get_next_client()
-            try:
-                if history:
-                    chat = client.chats.create(
-                        model=self.active_model,
-                        config=types.GenerateContentConfig(**config_dict),
-                        history=history
-                    )
-                    response = await asyncio.to_thread(chat.send_message, prompt)
-                else:
-                    response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model=self.active_model,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(**config_dict)
-                    )
+        n_clients = max(1, len(self.clients))
 
-                return _safe_extract_text(response)
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    logger.warning(f"Key rate limited (429), switching to next key. Error: {e}")
-                    last_exception = e
-                    continue
-                else:
-                    logger.error(f"Gemini API Error: {e}")
-                    raise GeminiServerError(f"Gemini Error: {e}")
-                    
-        raise GeminiAllKeysExhaustedError(f"All keys exhausted or rate limited. Last error: {last_exception}")
+        for cycle, wait_before in enumerate([0, *BACKOFF_SECONDS]):
+            if wait_before:
+                logger.warning(
+                    f"All {n_clients} key(s) rate limited. Sleeping {wait_before}s before retry cycle {cycle+1}."
+                )
+                await asyncio.sleep(wait_before)
+
+            for _ in range(n_clients):
+                client = self._get_next_client()
+                try:
+                    if history:
+                        chat = client.chats.create(
+                            model=self.active_model,
+                            config=types.GenerateContentConfig(**config_dict),
+                            history=history
+                        )
+                        response = await asyncio.to_thread(chat.send_message, prompt)
+                    else:
+                        response = await asyncio.to_thread(
+                            client.models.generate_content,
+                            model=self.active_model,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(**config_dict)
+                        )
+
+                    return _safe_extract_text(response)
+                except Exception as e:
+                    err_str = str(e)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        logger.warning(f"Key rate limited (429). Cycle {cycle+1}. Error: {e}")
+                        last_exception = e
+                        continue
+                    else:
+                        logger.error(f"Gemini API Error: {e}")
+                        raise GeminiServerError(f"Gemini Error: {e}")
+
+        raise GeminiAllKeysExhaustedError(f"All keys exhausted after retries. Last error: {last_exception}")
 
     async def stream_chat_completion_with_retry(self, messages: List[Dict], **kwargs):
         if not self.clients:
@@ -316,48 +373,59 @@ class GeminiService:
         mime_type = mime_map.get(ext, 'audio/ogg')
         INLINE_LIMIT = 20 * 1024 * 1024
 
+        # Bitta kalit holatda ham 429 ushlansa biroz kutib qayta urinamiz.
+        BACKOFF_SECONDS = [13, 20]
         last_exception = None
-        for _ in range(len(self.clients)):
-            client = self._get_next_client()
-            myfile = None
-            try:
-                if file_size <= INLINE_LIMIT:
-                    with open(file_path, 'rb') as f:
-                        audio_bytes = f.read()
-                    
-                    response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model=self.active_model,
-                        contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
-                        config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-                    )
-                else:
-                    myfile = await asyncio.to_thread(client.files.upload, file=file_path)
-                    response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model=self.active_model,
-                        contents=[myfile, prompt],
-                        config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-                    )
+        n_clients = max(1, len(self.clients))
 
-                return _safe_extract_text(response).strip()
-            except Exception as e:
-                err_str = str(e)
-                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                    logger.warning(f"Audio transcription rate limited (429), switching to next key. Error: {e}")
-                    last_exception = e
-                    continue
-                else:
-                    logger.error(f"Gemini Audio error: {e}")
-                    raise GeminiServerError(f"Audio processing error: {e}")
-            finally:
-                if myfile is not None:
-                    try:
-                        await asyncio.to_thread(client.files.delete, name=myfile.name)
-                    except Exception:
-                        pass
-                        
-        raise GeminiAllKeysExhaustedError(f"All keys exhausted for audio. Last error: {last_exception}")
+        for cycle, wait_before in enumerate([0, *BACKOFF_SECONDS]):
+            if wait_before:
+                logger.warning(
+                    f"Audio: all {n_clients} key(s) rate limited. Sleeping {wait_before}s before retry cycle {cycle+1}."
+                )
+                await asyncio.sleep(wait_before)
+
+            for _ in range(n_clients):
+                client = self._get_next_client()
+                myfile = None
+                try:
+                    if file_size <= INLINE_LIMIT:
+                        with open(file_path, 'rb') as f:
+                            audio_bytes = f.read()
+
+                        response = await asyncio.to_thread(
+                            client.models.generate_content,
+                            model=self.active_model,
+                            contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
+                            config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                        )
+                    else:
+                        myfile = await asyncio.to_thread(client.files.upload, file=file_path)
+                        response = await asyncio.to_thread(
+                            client.models.generate_content,
+                            model=self.active_model,
+                            contents=[myfile, prompt],
+                            config=types.GenerateContentConfig(safety_settings=self.safe_settings)
+                        )
+
+                    return _safe_extract_text(response).strip()
+                except Exception as e:
+                    err_str = str(e)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        logger.warning(f"Audio rate limited (429). Cycle {cycle+1}. Error: {e}")
+                        last_exception = e
+                        continue
+                    else:
+                        logger.error(f"Gemini Audio error: {e}")
+                        raise GeminiServerError(f"Audio processing error: {e}")
+                finally:
+                    if myfile is not None:
+                        try:
+                            await asyncio.to_thread(client.files.delete, name=myfile.name)
+                        except Exception:
+                            pass
+
+        raise GeminiAllKeysExhaustedError(f"All keys exhausted for audio after retries. Last error: {last_exception}")
 
     # ═══════════════════════════════════════
     # ISMNI AJRATIB OLISH (ovozdan)
@@ -555,6 +623,9 @@ mini_app_actions QOIDA: faqat MINI APP'da va aniq so'rovda bo'sh emas. Bot suhba
                 temperature=0.1,
                 max_tokens=1500,
             )
+        except GeminiAllKeysExhaustedError:
+            # Inner retry+backoff tugadi. Yana kutkazmaymiz — foydalanuvchi qayta yuborsin.
+            return {"intent": "error", "error_key": "err_ai_busy"}
         except GeminiServerError:
             return {"intent": "error", "error_key": "err_ai_down"}
         except Exception as e:
@@ -564,6 +635,12 @@ mini_app_actions QOIDA: faqat MINI APP'da va aniq so'rovda bo'sh emas. Bot suhba
         try:
             return json.loads(response)
         except json.JSONDecodeError:
+            # Truncated JSON repair — agar javob max_tokens'da uzilib qolgan bo'lsa,
+            # oxirgi to'liq yopilgan } gacha kesib, qayta urinib ko'ramiz.
+            repaired = _try_repair_truncated_json(response)
+            if repaired is not None:
+                logger.warning("Recovered truncated JSON from Gemini response")
+                return repaired
             log_error(ErrorType.GEMINI_JSON_PARSE, f"Invalid JSON from Gemini: {response[:200]}")
             return {"intent": "error", "error_key": "err_ai_json"}
 
