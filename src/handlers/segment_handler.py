@@ -184,7 +184,7 @@ async def process_country_name_text(message: Message, state: FSMContext):
     user = await get_user(user_id)
     lang = user.get("language", "uz")
 
-    # Groq AI orqali timezone aniqlash
+    # Gemini AI orqali timezone aniqlash
     timezone = await _detect_timezone_with_ai(country_name, lang)
 
     await update_segment_data(user_id, {
@@ -200,15 +200,15 @@ async def process_country_name_text(message: Message, state: FSMContext):
 
 
 async def _detect_timezone_with_ai(country_name: str, lang: str) -> str:
-    """Groq AI orqali davlat nomidan timezone aniqlash."""
+    """Gemini AI orqali davlat nomidan timezone aniqlash."""
     # Avval ma'lum davlatlarni tekshiramiz
     known = TIMEZONE_MAP.get(country_name)
     if known:
         return known
 
     try:
-        from src.services.groq_service import groq_service
-        ks = groq_service.get_best_key()
+        from src.services.gemini_service import gemini_service
+        ks = gemini_service.get_best_key()
         response = await ks.client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[

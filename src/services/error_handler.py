@@ -40,10 +40,10 @@ error_logger.addHandler(file_handler)
 # ═══════════════════════════════════════
 
 class ErrorType:
-    GROQ_RATE_LIMIT = "groq_rate_limit"
-    GROQ_SERVER = "groq_server"
-    GROQ_JSON_PARSE = "groq_json_parse"
-    GROQ_ALL_KEYS_EXHAUSTED = "groq_all_keys_exhausted"
+    GEMINI_RATE_LIMIT = "gemini_rate_limit"
+    GEMINI_SERVER = "gemini_server"
+    GEMINI_JSON_PARSE = "gemini_json_parse"
+    GEMINI_ALL_KEYS_EXHAUSTED = "gemini_all_keys_exhausted"
     MONGODB_CONNECTION = "mongodb_connection"
     MONGODB_DUPLICATE = "mongodb_duplicate"
     MONGODB_GENERAL = "mongodb_general"
@@ -60,8 +60,8 @@ class ErrorType:
 # Critical errors that must alert the admin
 CRITICAL_ERRORS = {
     ErrorType.MONGODB_CONNECTION,
-    ErrorType.GROQ_ALL_KEYS_EXHAUSTED,
-    ErrorType.GROQ_SERVER,
+    ErrorType.GEMINI_ALL_KEYS_EXHAUSTED,
+    ErrorType.GEMINI_SERVER,
 }
 
 

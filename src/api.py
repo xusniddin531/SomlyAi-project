@@ -1694,7 +1694,7 @@ async def admin_delete_financial_history(request):
 
 @routes.post('/api/admin/users/{telegram_id}/ai-summary')
 async def admin_user_ai_summary(request):
-    """Groq API yordamida foydalanuvchining psixologik-moliyaviy tahlilini qaytaradi."""
+    """Gemini API yordamida foydalanuvchining psixologik-moliyaviy tahlilini qaytaradi."""
     if not _verify_admin_token(request):
         return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
     try:
@@ -1704,7 +1704,7 @@ async def admin_user_ai_summary(request):
         if not user:
             return set_cors(web.json_response({"error": "User topilmadi"}, status=404))
             
-        from src.services.groq_service import process_text_groq
+        from src.services.gemini_service import process_text_gemini
         
         _interests = ', '.join(user['segment']['interests']) if user['segment']['interests'] else "Noma'lum"
         
@@ -1724,7 +1724,7 @@ Ma'lumotlar:
 
 Tahlil faqat matn ko'rinishida bo'lsin, hech qanday formatlashsiz (boldlarsiz, markdownlarsiz).
 """
-        summary_text = await process_text_groq(prompt)
+        summary_text = await process_text_gemini(prompt)
         return set_cors(web.json_response({"summary": summary_text}))
     except Exception as e:
         import traceback
@@ -2230,8 +2230,8 @@ STATISTIKA KONTEKSTI:
         )
         await response.prepare(request)
         
-        from src.services.groq_service import groq_service
-        async for chunk in groq_service.stream_chat_completion_with_retry(messages, temperature=0.7, max_tokens=1500):
+        from src.services.gemini_service import gemini_service
+        async for chunk in gemini_service.stream_chat_completion_with_retry(messages, temperature=0.7, max_tokens=1500):
             await response.write(chunk.encode('utf-8'))
             
         await response.write_eof()
@@ -2270,13 +2270,13 @@ async def health_check(request):
         health["mongo"] = f"error: {str(e)[:80]}"
         health["status"] = "degraded"
 
-    # Groq aktiv kalitlar soni
+    # Gemini aktiv kalitlar soni
     try:
-        from src.services.groq_service import groq_service as _gs
+        from src.services.gemini_service import gemini_service as _gs
         active = sum(1 for k in _gs.keys_stats if k.status == "active")
         total = len(_gs.keys_stats)
-        health["groq_keys"] = f"{active}/{total}"
-        health["groq_model"] = _gs.active_model
+        health["gemini_keys"] = f"{active}/{total}"
+        health["gemini_model"] = _gs.active_model
         if active == 0:
             health["status"] = "degraded"
     except Exception:
@@ -2349,7 +2349,7 @@ async def user_ai_chat(request):
         get_chat_history, save_chat_message, get_report_context,
         get_financial_advice_context,
     )
-    from src.services.groq_service import groq_service, GroqQueueError
+    from src.services.gemini_service import gemini_service, GeminiServerError
 
     try:
         data = await request.json()
@@ -2385,7 +2385,7 @@ async def user_ai_chat(request):
         page_context = f"\nFOYDALANUVCHI HOZIR SAHIFADA: {current_page}\nMINI APP ICHIDA — sahifa o'zgartirish so'rovi bo'lsa 'navigate' action ber.\n"
 
         try:
-            parsed = await groq_service.parse_transaction(
+            parsed = await gemini_service.parse_transaction(
                 text=message_text,
                 current_date_str=current_date,
                 language=language,
@@ -2397,7 +2397,7 @@ async def user_ai_chat(request):
                 all_balances=all_balance_names,
                 chat_history=chat_history,
             )
-        except GroqQueueError:
+        except GeminiServerError:
             return set_cors(web.json_response({
                 "reply": "⏳ Bot hozir band, bir necha soniyadan keyin urinib ko'ring.",
                 "actions": [],
@@ -2419,7 +2419,7 @@ async def user_ai_chat(request):
         if intent == "report":
             try:
                 ctx = await get_report_context(user_id)
-                report_text = await groq_service.generate_report_response(
+                report_text = await gemini_service.generate_report_response(
                     parsed.get("report_query") or message_text, ctx, language, parsed.get("user_segment")
                 )
                 reply = report_text
@@ -2432,7 +2432,7 @@ async def user_ai_chat(request):
         elif intent == "advice":
             try:
                 ctx = await get_financial_advice_context(user_id, "UZS")
-                advice_text = await groq_service.generate_smart_financial_advice(
+                advice_text = await gemini_service.generate_smart_financial_advice(
                     user_context=user, financial_data=ctx, trigger_type="user_requested", language=language
                 )
                 reply = advice_text
@@ -2527,8 +2527,8 @@ async def user_ai_chat_voice(request):
 
     Pipeline:
       1. Audio faylni temp/ ga saqlaymiz
-      2. Groq orqali transcribe qilamiz (Groq SDK — `whisper-large-v3-turbo` modeli)
-         MUHIM: Bu OpenAI Whisper API EMAS — barcha so'rovlar Groq serverlariga boradi.
+      2. Gemini orqali transcribe qilamiz (Gemini SDK — `whisper-large-v3-turbo` modeli)
+         MUHIM: Bu OpenAI Whisper API EMAS — barcha so'rovlar Gemini serverlariga boradi.
       3. Transcribed text'ni xuddi /api/chat kabi pipeline'ga uzatamiz
       4. Javobni qaytaramiz, fayl asinxron o'chiriladi
 
@@ -2539,8 +2539,8 @@ async def user_ai_chat_voice(request):
       intent: str
     }
     """
-    from src.services.groq_service import (
-        groq_service, GroqQueueError,
+    from src.services.gemini_service import (
+        gemini_service, GeminiServerError,
         WhisperInvalidAudioError, WhisperAllKeysExhaustedError,
     )
     import uuid
@@ -2569,7 +2569,7 @@ async def user_ai_chat_voice(request):
         if not user_id or not audio_bytes:
             return set_cors(web.json_response({"error": "user_id va audio majburiy"}, status=400))
 
-        # Fayl o'lchami chegarasi: 25MB (Groq Whisper limit)
+        # Fayl o'lchami chegarasi: 25MB (Gemini Whisper limit)
         if len(audio_bytes) > 25 * 1024 * 1024:
             return set_cors(web.json_response({
                 "transcript": "",
@@ -2588,7 +2588,7 @@ async def user_ai_chat_voice(request):
 
         # Faylni temp ga saqlaymiz — Whisper API faylga ehtiyoj
         os.makedirs("temp", exist_ok=True)
-        # Asl extensionni saqlaymiz (.webm/.ogg/.mp3...) — Groq format'ni shu orqali aniqlaydi
+        # Asl extensionni saqlaymiz (.webm/.ogg/.mp3...) — Gemini format'ni shu orqali aniqlaydi
         ext = audio_filename.rsplit('.', 1)[-1].lower() if '.' in audio_filename else 'webm'
         if ext not in ('webm', 'ogg', 'mp3', 'wav', 'm4a', 'flac', 'mp4'):
             ext = 'webm'
@@ -2598,7 +2598,7 @@ async def user_ai_chat_voice(request):
 
         # ── Whisper transcription ──
         try:
-            transcript = await groq_service.transcribe_audio_with_retry(local_path)
+            transcript = await gemini_service.transcribe_audio_with_retry(local_path)
         except WhisperInvalidAudioError:
             return set_cors(web.json_response({
                 "transcript": "",
@@ -2613,7 +2613,7 @@ async def user_ai_chat_voice(request):
                 "actions": [],
                 "intent": "error"
             }, status=503))
-        except GroqQueueError:
+        except GeminiServerError:
             return set_cors(web.json_response({
                 "transcript": "",
                 "reply": "⏳ Bir oz band, qayta urinib ko'ring.",
@@ -2663,7 +2663,7 @@ async def user_ai_chat_voice(request):
         page_context = f"\nFOYDALANUVCHI HOZIR SAHIFADA: {current_page}\nMINI APP ICHIDA — sahifa o'zgartirish so'rovi bo'lsa 'navigate' action ber.\n"
 
         try:
-            parsed = await groq_service.parse_transaction(
+            parsed = await gemini_service.parse_transaction(
                 text=transcript,
                 current_date_str=current_date,
                 language=language,
@@ -2675,7 +2675,7 @@ async def user_ai_chat_voice(request):
                 all_balances=all_balance_names,
                 chat_history=chat_history,
             )
-        except GroqQueueError:
+        except GeminiServerError:
             return set_cors(web.json_response({
                 "transcript": transcript,
                 "reply": "⏳ Bot hozir band, bir necha soniyadan keyin urinib ko'ring.",
@@ -2697,7 +2697,7 @@ async def user_ai_chat_voice(request):
         if intent == "report":
             try:
                 ctx = await get_report_context(user_id)
-                reply = await groq_service.generate_report_response(
+                reply = await gemini_service.generate_report_response(
                     parsed.get("report_query") or transcript, ctx, language, parsed.get("user_segment")
                 )
             except Exception as e:
@@ -2707,7 +2707,7 @@ async def user_ai_chat_voice(request):
         elif intent == "advice":
             try:
                 ctx = await get_financial_advice_context(user_id, "UZS")
-                reply = await groq_service.generate_smart_financial_advice(
+                reply = await gemini_service.generate_smart_financial_advice(
                     user_context=user, financial_data=ctx, trigger_type="user_requested", language=language
                 )
             except Exception as e:
@@ -3117,15 +3117,15 @@ async def admin_update_settings(request):
     except Exception as e:
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
-@routes.get('/api/admin/groq-status')
-async def admin_groq_status(request):
-    """Groq API kalitlari holatini ko'rsatish."""
+@routes.get('/api/admin/gemini-status')
+async def admin_gemini_status(request):
+    """Gemini API kalitlari holatini ko'rsatish."""
     if not _verify_admin_token(request):
         return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
     try:
-        from src.services.groq_service import groq_service
+        from src.services.gemini_service import gemini_service
         keys_info = []
-        for ks in groq_service.keys_stats:
+        for ks in gemini_service.keys_stats:
             keys_info.append({
                 "index": ks.index + 1,
                 "status": ks.status,

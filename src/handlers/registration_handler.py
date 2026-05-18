@@ -22,7 +22,7 @@ from src.database import (
     get_user, update_user_name, update_user_phone,
     update_user_gender, get_all_channels, update_user_channels_joined
 )
-from src.services.groq_service import groq_service
+from src.services.gemini_service import gemini_service
 from src.services.i18n import t
 
 router = Router()
@@ -99,7 +99,7 @@ async def process_name_text(message: Message, state: FSMContext):
     # ════════════════════════════════════════════
     # JINS ANIQLASH (AI ismdan)
     # ════════════════════════════════════════════
-    gender = await groq_service.detect_gender(name)
+    gender = await gemini_service.detect_gender(name)
     await update_user_gender(user_id, gender)
     logger.info(f"Gender detected for '{name}': {gender}")
 
@@ -138,9 +138,9 @@ async def process_name_voice(message: Message, state: FSMContext, bot: Bot):
 
     try:
         await bot.download_file(file_path, local_path)
-        transcribed = await groq_service.transcribe_audio_with_retry(local_path)
+        transcribed = await gemini_service.transcribe_audio_with_retry(local_path)
         # AI orqali faqat ismni ajratib olish
-        name = await groq_service.extract_name(transcribed)
+        name = await gemini_service.extract_name(transcribed)
 
         if not name or len(name) < 2:
             name = transcribed.strip()
@@ -149,7 +149,7 @@ async def process_name_voice(message: Message, state: FSMContext, bot: Bot):
         await update_user_name(user_id, name, username=username)
         
         # Jins aniqlash (AI orqali)
-        gender = await groq_service.detect_gender(name)
+        gender = await gemini_service.detect_gender(name)
         await update_user_gender(user_id, gender)
         logger.info(f"Gender detected (voice) for '{name}': {gender}")
         

@@ -26,7 +26,7 @@ from src.database import (
     get_chat_history, save_chat_message, reminders_collection,
     get_user_all_balances,
 )
-from src.services.groq_service import groq_service, GroqQueueError
+from src.services.gemini_service import gemini_service, GeminiServerError
 from src.services.scheduler import schedule_one_time_reminder
 from src.services.i18n import t
 from src.services.error_handler import (
@@ -259,8 +259,8 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     6. Save & respond with formatted message
     """
     # ── Defensive lokal binding (UnboundLocalError oldini olish) ──
-    from src.services.groq_service import groq_service as _gs
-    groq_service = _gs
+    from src.services.gemini_service import gemini_service as _gs
+    gemini_service = _gs
 
     user_id = message.from_user.id
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -299,7 +299,7 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
     # ─── 1. Send to AI ───
     status_msg = None  # "Bir daqiqa..." xabar reference (edit/delete uchun)
     try:
-        data = await groq_service.parse_transaction(
+        data = await gemini_service.parse_transaction(
             text=text,
             current_date_str=current_date,
             language=language,
@@ -311,7 +311,7 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
             all_balances=all_balance_names,
             chat_history=chat_history
         )
-    except GroqQueueError:
+    except GeminiServerError:
         # Status xabar yuboramiz va reference saqlaymiz — edit/delete uchun
         try:
             status_msg = await message.answer("⏳")
@@ -324,7 +324,7 @@ async def handle_transaction_text(message: Message, text: str, state: FSMContext
         ))
         return
     except Exception as e:
-        log_error(ErrorType.GROQ_SERVER, f"Unexpected AI error", user_id, e)
+        log_error(ErrorType.GEMINI_SERVER, f"Unexpected AI error", user_id, e)
         await message.answer(t(language, "err_ai_down"))
         return
 
@@ -342,8 +342,8 @@ async def handle_queued_transaction(
     Status xabar har urinishda yangilanadi.
     """
     # ── Defensive lokal binding ──
-    from src.services.groq_service import groq_service as _gs
-    groq_service = _gs
+    from src.services.gemini_service import gemini_service as _gs
+    gemini_service = _gs
 
     MAX_ATTEMPTS = 3
     RETRY_DELAY = 5  # 30s → 5s: kalitlar cooling 60s, lekin har 5s da yangisini probe qilamiz
@@ -368,7 +368,7 @@ async def handle_queued_transaction(
     last_exc = None
     for attempt in range(1, MAX_ATTEMPTS + 1):
         try:
-            data = await groq_service.parse_transaction(
+            data = await gemini_service.parse_transaction(
                 text=text,
                 current_date_str=current_date,
                 language=language,
@@ -381,7 +381,7 @@ async def handle_queued_transaction(
                 chat_history=chat_history
             )
             break  # muvaffaqiyat
-        except GroqQueueError as e:
+        except GeminiServerError as e:
             last_exc = e
             if attempt < MAX_ATTEMPTS:
                 await update_status(t(language, "ai_busy_short", n=attempt, total=MAX_ATTEMPTS))
@@ -391,7 +391,7 @@ async def handle_queued_transaction(
                 await update_status(t(language, "err_ai_busy"))
                 return
         except Exception as e:
-            log_error(ErrorType.GROQ_SERVER, f"Unexpected AI error in queue (attempt {attempt})", user_id, e)
+            log_error(ErrorType.GEMINI_SERVER, f"Unexpected AI error in queue (attempt {attempt})", user_id, e)
             await update_status(t(language, "err_ai_down"))
             return
 
@@ -409,12 +409,12 @@ async def handle_queued_transaction(
     await process_parsed_data(data, message, user_id, language, current_date, custom_cats_list, state, habits)
 async def process_parsed_data(data: dict, message: Message, user_id: int, language: str, current_date: str, custom_cats: list, state: FSMContext, habits: dict = None):
     # ── Defensive: lokal binding ──
-    # Python scoping zaifligi: agar funksiya ichida BIROR JOYDA `groq_service = ...`
-    # yoki `from src.services.groq_service import groq_service` bo'lsa,
+    # Python scoping zaifligi: agar funksiya ichida BIROR JOYDA `gemini_service = ...`
+    # yoki `from src.services.gemini_service import gemini_service` bo'lsa,
     # butun funksiyada top-level import "ko'rinmas" bo'lib qoladi va
     # UnboundLocalError keladi. Shuning uchun shu yerda MAJBURIY rebind qilamiz.
-    from src.services.groq_service import groq_service as _gs
-    groq_service = _gs
+    from src.services.gemini_service import gemini_service as _gs
+    gemini_service = _gs
 
     intent = data.get("intent")
 
@@ -450,17 +450,17 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
             currency = "UZS"
             context_data = await get_financial_advice_context(user_id, currency)
 
-            advice_text = await groq_service.generate_smart_financial_advice(
+            advice_text = await gemini_service.generate_smart_financial_advice(
                 user_context=user_data,
                 financial_data=context_data,
                 trigger_type="user_requested",
                 language=language
             )
             await message.answer(advice_text)
-        except GroqQueueError:
+        except GeminiServerError:
             await message.answer(t(language, "err_ai_busy"))
         except Exception as e:
-            log_error(ErrorType.GROQ_SERVER, f"Advice generation failed", user_id, e)
+            log_error(ErrorType.GEMINI_SERVER, f"Advice generation failed", user_id, e)
             # Fallback: send a chat_response if AI provided one, else a generic message
             fallback = data.get("chat_response") or t(language, "ai_advice_fallback")
             await message.answer(fallback)
@@ -530,16 +530,16 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
         try:
             context = await get_report_context(user_id)
             user_segment = data.get("user_segment")
-            report_text = await groq_service.generate_report_response(query, context, language, user_segment)
+            report_text = await gemini_service.generate_report_response(query, context, language, user_segment)
             kb = await build_webapp_keyboard("/reports", language, button_text="📊 " + t(language, "deeplink_view_reports"))
             await message.answer(report_text, reply_markup=kb)
-        except GroqQueueError:
+        except GeminiServerError:
             # AI band — direct balansni qaytaramiz
             fallback = await build_fallback_balance_text(user_id)
             kb = await build_webapp_keyboard("/reports", language, button_text="📊 " + t(language, "deeplink_view_reports"))
             await message.answer(fallback, reply_markup=kb)
         except Exception as e:
-            log_error(ErrorType.GROQ_SERVER, f"Report generation failed", user_id, e)
+            log_error(ErrorType.GEMINI_SERVER, f"Report generation failed", user_id, e)
             # MongoDB yoki AI xato — fallback ravishda balansni DIRECT yuboramiz
             fallback = await build_fallback_balance_text(user_id)
             try:
@@ -643,8 +643,8 @@ async def process_parsed_data(data: dict, message: Message, user_id: int, langua
 
 async def enhance_category_with_ai(description: str, original_category: str, personal_cats: list, user_id: int, tx_type: str = "chiqim") -> tuple:
     # ── Defensive lokal binding ──
-    from src.services.groq_service import groq_service as _gs
-    groq_service = _gs
+    from src.services.gemini_service import gemini_service as _gs
+    gemini_service = _gs
 
     """
     Enhance category detection using AI.
@@ -686,7 +686,7 @@ async def enhance_category_with_ai(description: str, original_category: str, per
             return result
         
         # Call AI detection
-        result = await groq_service.detect_category_for_transaction(
+        result = await gemini_service.detect_category_for_transaction(
             description=description,
             personal_categories=personal_cats,
             system_categories=SYSTEM_CATEGORIES,
@@ -721,8 +721,8 @@ async def enhance_category_with_ai(description: str, original_category: str, per
 
 async def process_extracted_transactions(message: Message, transactions: list, user_id: int, language: str, current_date: str, custom_cats: list = None, ai_reply: str = None, habits: dict = None, state: FSMContext = None, tip: str = None):
     # ── Defensive lokal binding (UnboundLocalError oldini olish) ──
-    from src.services.groq_service import groq_service as _gs
-    groq_service = _gs
+    from src.services.gemini_service import gemini_service as _gs
+    gemini_service = _gs
 
     if not transactions:
         await message.answer(t(language, "voice_not_understood"))
@@ -963,7 +963,7 @@ async def process_extracted_transactions(message: Message, transactions: list, u
                         if trigger:
                             user_data = await get_user(user_id)
                             context_data = await get_financial_advice_context(user_id, currency)
-                            advice_msg = await groq_service.generate_smart_financial_advice(
+                            advice_msg = await gemini_service.generate_smart_financial_advice(
                                 user_context=user_data,
                                 financial_data=context_data,
                                 trigger_type=trigger,
@@ -1160,7 +1160,7 @@ async def resolve_missing_debt_date(callback: CallbackQuery, state: FSMContext):
 
 @router.message(TransactionAmbiguity.waiting_for_debt_date, F.text)
 async def resolve_missing_debt_date_text(message: Message, state: FSMContext):
-    # Here we would ideally ask Groq to parse the date, but to save tokens we just set it as string
+    # Here we would ideally ask Gemini to parse the date, but to save tokens we just set it as string
     data = await state.get_data()
     tx = data.get("partial_tx", {})
     tx["due_date"] = message.text

@@ -148,10 +148,10 @@ async def check_monthly_summary(bot: Bot):
         # ─── AQLLI MASLAHAT QO'SHISH ───
         try:
             from src.database import get_financial_advice_context, update_last_advice_date
-            from src.services.groq_service import groq_service
+            from src.services.gemini_service import gemini_service
             
             context_data = await get_financial_advice_context(telegram_id, currency)
-            advice_msg = await groq_service.generate_smart_financial_advice(
+            advice_msg = await gemini_service.generate_smart_financial_advice(
                 user_context=user,
                 financial_data=context_data,
                 trigger_type="monthly",
@@ -343,7 +343,7 @@ async def weekly_cleanup(bot: Bot):
 # ═══════════════════════════════════════
 async def monitor_system_health(bot: Bot):
     """
-    Har 5 minutda MongoDB va Groq API ni tekshiradi.
+    Har 5 minutda MongoDB va Gemini API ni tekshiradi.
     Agar ishlamasa Adminga yozadi.
     """
     errors = []
@@ -354,14 +354,14 @@ async def monitor_system_health(bot: Bot):
     except Exception as e:
         errors.append(f"❌ MongoDB ishlamayapti: {str(e)[:50]}")
         
-    # 2. Check Groq API
+    # 2. Check Gemini API
     try:
-        from src.services.groq_service import groq_service
-        ks = groq_service.get_best_key()
+        from src.services.gemini_service import gemini_service
+        ks = gemini_service.get_best_key()
         # Very lightweight check just to test connection
         await ks.client.models.list()
     except Exception as e:
-        errors.append(f"❌ Groq API ishlamayapti: {str(e)[:50]}")
+        errors.append(f"❌ Gemini API ishlamayapti: {str(e)[:50]}")
         
     if errors and ADMIN_ID:
         msg = "🚨 MONITORING ALERT:\n\n" + "\n".join(errors)
@@ -372,33 +372,33 @@ async def monitor_system_health(bot: Bot):
 
 
 # ═══════════════════════════════════════
-# GROQ API KEYS MONITORING
+# GEMINI API KEYS MONITORING
 # ═══════════════════════════════════════
-async def check_groq_keys_health(bot: Bot):
-    """Har 5 minutda ishlaydi, Groq keylar holatini tekshiradi va log qiladi."""
-    from src.services.groq_service import groq_service
+async def check_gemini_keys_health(bot: Bot):
+    """Har 5 minutda ishlaydi, Gemini keylar holatini tekshiradi va log qiladi."""
+    from src.services.gemini_service import gemini_service
     import time
     
     now = time.time()
-    for ks in groq_service.keys_stats:
+    for ks in gemini_service.keys_stats:
         if ks.status == "cooling" and now - ks.last_error_time > 60:
             ks.status = "active"
             ks.connection_errors = 0
-            logger.info(f"Groq API Key {ks.index+1} reactivated via scheduler.")
+            logger.info(f"Gemini API Key {ks.index+1} reactivated via scheduler.")
 
 
 async def send_daily_api_report(bot: Bot):
-    """Har kuni 08:00 da admin ga Groq keylar hisobotini jo'natadi."""
+    """Har kuni 08:00 da admin ga Gemini keylar hisobotini jo'natadi."""
     if not ADMIN_ID:
         return
         
-    from src.services.groq_service import groq_service
+    from src.services.gemini_service import gemini_service
     import time
     
     now = time.time()
     msg_parts = ["📊 API Keys holati:"]
     
-    for ks in groq_service.keys_stats:
+    for ks in gemini_service.keys_stats:
         if ks.status == "active":
             msg_parts.append(f"✅ Key {ks.index+1}: Aktiv ({ks.requests_count} so'rov)")
         elif ks.status == "cooling":
@@ -562,10 +562,10 @@ def setup_scheduler(bot: Bot):
     # System Monitoring har 50 minutda
     scheduler.add_job(monitor_system_health, trigger="interval", minutes=50, args=[bot], id="system_monitoring", replace_existing=True)
     
-    # Groq Keys Monitoring har 15 minutda
-    scheduler.add_job(check_groq_keys_health, trigger="interval", minutes=15, args=[bot], id="groq_keys_health", replace_existing=True)
+    # Gemini Keys Monitoring har 15 minutda
+    scheduler.add_job(check_gemini_keys_health, trigger="interval", minutes=15, args=[bot], id="gemini_keys_health", replace_existing=True)
     
-    # Groq Keys Kunlik Hisobot 08:00 da
+    # Gemini Keys Kunlik Hisobot 08:00 da
     scheduler.add_job(send_daily_api_report, trigger="cron", hour=8, minute=0, args=[bot], id="daily_api_report", replace_existing=True)
     
     # Birlashtirilgan eslatmalarni tekshirish (AI va oddiy) har 2 daqiqada
@@ -619,7 +619,7 @@ async def check_channel_subscriptions_job(bot: Bot):
 
 
 # ═══════════════════════════════════════
-# XAVFSIZLIK: GROQ API KALITLARINI TEKSHIRISH
+# XAVFSIZLIK: GEMINI API KALITLARINI TEKSHIRISH
 # ═══════════════════════════════════════
 async def check_segmentation_questions(bot: Bot):
     """Har 5 daqiqada segmentation savollari kerak bo'lgan userlarni tekshiradi.

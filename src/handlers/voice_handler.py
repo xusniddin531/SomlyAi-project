@@ -3,19 +3,19 @@ Voice handler.
 Routes voice messages:
 - If in registration (waiting_for_name) → handled by registration_handler
 - If in registration (waiting_for_contact) → handled by registration_handler
-- Otherwise → transcribe (via Groq's Whisper model) and pass to transaction pipeline
+- Otherwise → transcribe (via Gemini's Whisper model) and pass to transaction pipeline
 
-MUHIM: Transkripsiya OpenAI Whisper API orqali emas, Groq orqali bajariladi.
-Groq o'z serverlarida `whisper-large-v3-turbo` va `whisper-large-v3` modellarini host qiladi.
+MUHIM: Transkripsiya OpenAI Whisper API orqali emas, Gemini orqali bajariladi.
+Gemini o'z serverlarida `whisper-large-v3-turbo` va `whisper-large-v3` modellarini host qiladi.
 
 Error handling:
 - Voice file download failure → err_voice_download
 - Voice too short (< 1s) → err_voice_too_short
 - Voice too long (> 120s) or too large (> 25MB) → specific error
 - Invalid audio (bad format) → err_voice_whisper
-- All Groq keys exhausted (401/quota) → err_ai_down
+- All Gemini keys exhausted (401/quota) → err_ai_down
 - Rate-limited → err_ai_busy
-- Groq server error → err_ai_down
+- Gemini server error → err_ai_down
 """
 
 import os
@@ -23,8 +23,8 @@ import logging
 from aiogram import Router, F, Bot
 from aiogram.types import Message
 from aiogram.fsm.context import FSMContext
-from src.services.groq_service import (
-    groq_service, GroqQueueError, GroqServerError,
+from src.services.gemini_service import (
+    gemini_service, GeminiServerError, GeminiServerError,
     WhisperInvalidAudioError, WhisperAllKeysExhaustedError,
 )
 from src.handlers.message_handler import handle_transaction_text
@@ -33,8 +33,8 @@ from src.database import get_user
 from src.services.i18n import t
 from src.services.error_handler import log_error, ErrorType
 
-GROQ_AUDIO_MAX_FILE_SIZE = 25 * 1024 * 1024  # Groq audio endpoint limit: 25MB
-WHISPER_MAX_FILE_SIZE = GROQ_AUDIO_MAX_FILE_SIZE  # backward-compat alias
+GEMINI_AUDIO_MAX_FILE_SIZE = 25 * 1024 * 1024  # Gemini audio endpoint limit: 25MB
+WHISPER_MAX_FILE_SIZE = GEMINI_AUDIO_MAX_FILE_SIZE  # backward-compat alias
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -110,28 +110,28 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
     _asyncio.create_task(_send_typing())
 
     try:
-        # ── Groq Whisper transcription (Groq SDK orqali, OpenAI emas) ──
+        # ── Gemini Whisper transcription (Gemini SDK orqali, OpenAI emas) ──
         # NOTE: parallel context fetch transcribe BILAN BIRGA bo'lishi mumkin, lekin
         # transcribe natijasi (matn) AI prompt'ga kerak — context fetch transcribe
         # tugashidan oldin handle_transaction_text ichida boshlanadi (asyncio.gather).
         try:
-            transcribed_text = await groq_service.transcribe_audio_with_retry(local_path)
+            transcribed_text = await gemini_service.transcribe_audio_with_retry(local_path)
         except WhisperAllKeysExhaustedError as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"All Groq keys exhausted for audio", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"All Gemini keys exhausted for audio", user_id, e)
             await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except WhisperInvalidAudioError as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Groq Whisper", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Invalid audio rejected by Gemini Whisper", user_id, e)
             await status_msg.edit_text(t(lang, "voice_bad_format"))
             return
-        except GroqQueueError:
+        except GeminiServerError:
             await status_msg.edit_text(t(lang, "err_ai_busy"))
             return
-        except GroqServerError:
+        except GeminiServerError:
             await status_msg.edit_text(t(lang, "err_ai_down"))
             return
         except Exception as e:
-            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Groq Whisper unexpected failure", user_id, e)
+            log_error(ErrorType.VOICE_WHISPER_FAIL, f"Gemini Whisper unexpected failure", user_id, e)
             await status_msg.edit_text(t(lang, "err_voice_whisper"))
             return
 

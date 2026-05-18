@@ -194,9 +194,9 @@ async def main():
     # ── Start API Server ──
     await start_api_server(bot)
 
-    # ── Validate Groq API keys ──
-    from src.services.groq_service import groq_service
-    await groq_service.validate_keys_on_startup()
+    # ── Validate Gemini API keys ──
+    from src.services.gemini_service import gemini_service
+    await gemini_service.validate_keys_on_startup()
 
     # ── Ensure MongoDB indexes (10-100x faster queries) ──
     from src.database import ensure_indexes

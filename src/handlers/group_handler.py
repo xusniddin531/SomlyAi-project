@@ -17,7 +17,7 @@ from src.database import (
     get_group_by_chat_id, get_user_groups, link_telegram_chat,
     insert_group_transaction, update_group_balance, get_user
 )
-from src.services.groq_service import groq_service, GroqQueueError
+from src.services.gemini_service import gemini_service, GeminiServerError
 from src.database import get_custom_categories, get_user_financial_context, get_recent_transactions_context, get_user_habits
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ async def handle_group_message(message: Message):
     habits = await get_user_habits(user_id)
 
     try:
-        data = await groq_service.parse_transaction(
+        data = await gemini_service.parse_transaction(
             text=text,
             current_date_str=current_date,
             language=language,
@@ -127,7 +127,7 @@ async def handle_group_message(message: Message):
             recent_txs=recent_txs,
             habits=habits
         )
-    except GroqQueueError:
+    except GeminiServerError:
         await message.answer("⏳")
         import asyncio
         asyncio.create_task(handle_queued_group_transaction(
@@ -145,7 +145,7 @@ async def handle_queued_group_transaction(message, text, current_date, language,
     import asyncio
     while True:
         try:
-            data = await groq_service.parse_transaction(
+            data = await gemini_service.parse_transaction(
                 text=text,
                 current_date_str=current_date,
                 language=language,
@@ -156,7 +156,7 @@ async def handle_queued_group_transaction(message, text, current_date, language,
                 habits=habits
             )
             break
-        except GroqQueueError:
+        except GeminiServerError:
             await asyncio.sleep(30)
         except Exception as e:
             logger.error(f"AI error in queued group transaction: {e}")
