@@ -738,29 +738,130 @@ async def update_language(request):
 
 @routes.post('/api/export')
 async def export_excel_route(request):
+    """
+    Mini App → Profile → "Hisobotni yuklab olish" tugmasi.
+    Period: "Bu oy" | "O'tgan oy" | "Oxirgi 3 oy" | "Hammasi"
+    Excel faylni Telegram bot orqali user'ga document sifatida jo'natadi.
+    """
     try:
         data = await request.json()
         user_id = int(data.get('user_id', 0))
         period = data.get('period', 'Bu oy')
-        
+
+        if not user_id:
+            return set_cors(web.json_response({"error": "Missing user_id"}, status=400))
+
         bot = request.app.get('bot')
-        if bot and user_id:
+        if not bot:
+            return set_cors(web.json_response({"error": "Bot unavailable"}, status=503))
+
+        # Period → date range
+        from datetime import datetime as _dt, timedelta as _td
+        now = _dt.utcnow()
+        period_l = (period or '').lower()
+        if period_l in ('o\'tgan oy', 'otgan oy', 'last month', 'прошлый месяц'):
+            first_this = _dt(now.year, now.month, 1)
+            last_prev = first_this - _td(days=1)
+            start_date = _dt(last_prev.year, last_prev.month, 1)
+            end_date = last_prev.replace(hour=23, minute=59, second=59)
+            period_text = period
+        elif period_l in ('oxirgi 3 oy', 'last 3 months', 'последние 3 месяца', '3 oy'):
+            start_date = now - _td(days=90)
+            end_date = now
+            period_text = period
+        elif period_l in ('hammasi', 'all', 'все', 'all time'):
+            start_date = _dt(2020, 1, 1)
+            end_date = now
+            period_text = period
+        else:  # Bu oy / This month / Этот месяц — default
+            start_date = _dt(now.year, now.month, 1)
+            end_date = now
+            period_text = period or 'Bu oy'
+
+        # Background task: generate + send (immediate API response)
+        async def _do_export():
+            from src.services.excel_service import generate_excel_report
+            from aiogram.types import BufferedInputFile
+
+            user = await get_user(user_id) or {}
+            language = user.get("language", "uz")
+
+            # Status xabar
+            wait_msg = None
             try:
-                await bot.send_message(chat_id=user_id, text=f"⏳ Excel hisobot tayyorlanmoqda ({period})...")
-                # Trigger the actual export logic
-                from src.handlers.report_handler import send_excel_report
-                import asyncio
-                # The send_excel_report might expect (message, user_id) or something similar
-                # Just mock or fire if it exists, otherwise just send the message
+                wait_msg = await bot.send_message(
+                    chat_id=user_id,
+                    text=f"⏳ Excel hisobot tayyorlanmoqda ({period_text})..."
+                )
+            except Exception as e:
+                logger.warning(f"export: failed to send wait msg to {user_id}: {e}")
+
+            try:
+                filepath = await generate_excel_report(user_id, start_date, end_date, language=language)
+
+                # Totals for caption
+                date_from = start_date.strftime("%Y-%m-%d")
+                date_to = end_date.strftime("%Y-%m-%d")
+                txs = await transactions_collection.find({
+                    "telegram_id": user_id,
+                    "date": {"$gte": date_from, "$lte": date_to}
+                }).to_list(None)
+                total_income = sum(t.get("amount", 0) for t in txs if t.get("type") == "kirim")
+                total_expense = sum(t.get("amount", 0) for t in txs if t.get("type") == "chiqim")
+                net = total_income - total_expense
+
+                with open(filepath, 'rb') as f:
+                    file_bytes = f.read()
+                filename = os.path.basename(filepath)
+
+                caption = (
+                    f"📊 <b>Hisobotingiz tayyor!</b>\n\n"
+                    f"📅 <b>Davr:</b> {period_text}\n"
+                    f"💰 <b>Kirim:</b> {total_income:,.0f} UZS\n"
+                    f"💸 <b>Chiqim:</b> {total_expense:,.0f} UZS\n"
+                    f"✅ <b>Qoldiq:</b> {net:,.0f} UZS"
+                )
+
+                doc = BufferedInputFile(file_bytes, filename=filename)
+                # Wait xabarni o'chiramiz
+                if wait_msg:
+                    try:
+                        await wait_msg.delete()
+                    except Exception:
+                        pass
+                await bot.send_document(
+                    chat_id=user_id,
+                    document=doc,
+                    caption=caption,
+                    parse_mode="HTML"
+                )
+
+                # Faylni o'chiramiz (cleanup)
                 try:
-                    asyncio.create_task(send_excel_report(bot, user_id))
+                    os.remove(filepath)
                 except Exception:
                     pass
-            except Exception as inner_e:
-                logger.error(f"Error triggering excel: {inner_e}")
-                
-        return set_cors(web.json_response({"success": True}))
+
+            except Exception as e:
+                logger.error(f"export: generation failed for {user_id}: {e}")
+                import traceback
+                traceback.print_exc()
+                err_text = f"❌ Hisobot tayyorlashda xatolik: {str(e)[:120]}"
+                try:
+                    if wait_msg:
+                        await wait_msg.edit_text(err_text)
+                    else:
+                        await bot.send_message(chat_id=user_id, text=err_text)
+                except Exception:
+                    pass
+
+        # Fire-and-forget — Mini App javobni darrov oladi
+        asyncio.create_task(_do_export())
+        return set_cors(web.json_response({"success": True, "queued": True}))
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        logger.error(f"/api/export route error: {e}")
         return set_cors(web.json_response({"error": str(e)}, status=500))
 
 
