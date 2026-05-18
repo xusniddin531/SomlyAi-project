@@ -170,6 +170,27 @@ class GeminiService:
             types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
         ]
 
+    @property
+    def keys_stats(self):
+        # Dummy stats to prevent scheduler crash
+        class DummyStat:
+            def __init__(self, idx):
+                self.index = idx
+                self.status = "active"
+                self.requests_count = 0
+                self.last_error_time = 0
+                self.connection_errors = 0
+        return [DummyStat(i) for i in range(len(self.clients))]
+
+    def get_best_key(self):
+        class DummyKey:
+            def __init__(self, client):
+                self.client = client
+        
+        if not self.clients:
+            raise GeminiServerError("No clients available")
+        return DummyKey(self.clients[0])
+
     def _get_next_client(self):
         if not self.client_cycle:
             return None
