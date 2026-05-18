@@ -108,7 +108,7 @@ class GeminiService:
             self.client = genai.Client(api_key=GEMINI_API_KEY)
             logger.info("GeminiService initialized")
             
-        self.active_model = GEMINI_MODEL or "gemini-1.5-flash"
+        self.active_model = GEMINI_MODEL or "gemini-2.5-flash"
         
         self.safe_settings = [
             types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_NONE),
