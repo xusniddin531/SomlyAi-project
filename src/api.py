@@ -843,15 +843,22 @@ async def export_excel_route(request):
                     pass
 
             except Exception as e:
+                # Texnik xato — faqat log'ga, user'ga hech qachon ko'rsatmaymiz
                 logger.error(f"export: generation failed for {user_id}: {e}")
                 import traceback
                 traceback.print_exc()
-                err_text = f"❌ Hisobot tayyorlashda xatolik: {str(e)[:120]}"
+                # User'ga do'stona xabar (kod xatolari emas)
+                user_lang_for_err = (user.get("language") if 'user' in dir() and user else "uz")
+                friendly = {
+                    "uz": "😔 Hisobotni hozir tayyorlay olmadim. Iltimos, biroz keyinroq qayta urinib ko'ring.",
+                    "en": "😔 Couldn't prepare the report right now. Please try again a bit later.",
+                    "ru": "😔 Сейчас не получилось подготовить отчёт. Пожалуйста, попробуйте позже.",
+                }.get(user_lang_for_err, "😔 Hisobotni hozir tayyorlay olmadim. Iltimos, biroz keyinroq qayta urinib ko'ring.")
                 try:
                     if wait_msg:
-                        await wait_msg.edit_text(err_text)
+                        await wait_msg.edit_text(friendly)
                     else:
-                        await bot.send_message(chat_id=user_id, text=err_text)
+                        await bot.send_message(chat_id=user_id, text=friendly)
                 except Exception:
                     pass
 

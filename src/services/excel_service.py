@@ -3,6 +3,8 @@ Excel report generation service for Somly AI.
 Generates financial reports with Summary, Transactions, and Debts sheets.
 """
 
+import os
+import re
 from datetime import datetime, timedelta
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side, numbers
@@ -14,6 +16,16 @@ from src.database import (
     get_user_all_balances,
     debts_collection,
 )
+
+
+def _safe_filename_part(s: str) -> str:
+    """Fayl nomi uchun xavfsiz qism: maxsus belgilar olib tashlanadi."""
+    if not s:
+        return "User"
+    # Faqat harflar/raqamlar/probel/tire/_ qoldiramiz
+    cleaned = re.sub(r'[^\w\s\-]', '', str(s), flags=re.UNICODE)
+    cleaned = re.sub(r'\s+', '_', cleaned.strip())
+    return cleaned[:40] or "User"
 
 
 
@@ -60,9 +72,12 @@ async def generate_excel_report(
         7: "Iyul", 8: "Avgust", 9: "Sentyabr", 10: "Oktyabr", 11: "Noyabr", 12: "Dekabr"
     }
     month_uz = months_uz.get(date_from.month, str(date_from.month))
-    filename = f"Somly_{full_name}_{month_uz}-{date_from.year}.xlsx"
-    
-    filepath = f"temp/{filename}"
+    safe_name = _safe_filename_part(full_name)
+    filename = f"Somly_{safe_name}_{month_uz}-{date_from.year}.xlsx"
+
+    # temp/ papkasini yaratamiz (idempotent — mavjud bo'lsa skip)
+    os.makedirs("temp", exist_ok=True)
+    filepath = os.path.join("temp", filename)
     wb.save(filepath)
     return filepath
 

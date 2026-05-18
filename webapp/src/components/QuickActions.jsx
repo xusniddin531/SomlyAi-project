@@ -1,6 +1,155 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, Minus, Handshake, ArrowRightLeft, X, ScanLine } from 'lucide-react';
+import { Plus, Minus, Handshake, ArrowRightLeft, X, ScanLine, ChevronDown, Check } from 'lucide-react';
+
+// Balans summa formati: 1500000 → "1 500 000"
+const formatBalanceAmount = (n) => {
+  if (n === null || n === undefined || isNaN(n)) return '0';
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  return sign + Math.round(abs).toLocaleString('uz-UZ').replace(/,/g, ' ');
+};
+
+// ─── BalancePicker: premium custom dropdown ─────────────────────────────
+// O'rniga oddiy <select> ko'rinishida emas, balans kartochkasi sifatida ko'rsatadi:
+// emoji + nom + summa. Tugmani bosilganda ostidan ro'yxat ochiladi.
+// Apple-style: smooth animation, hover, active state, responsive.
+const renderBalancePicker = ({
+  pickerKey,
+  selectedCurrency,
+  onSelect,
+  balances,
+  openBalancePicker,
+  setOpenBalancePicker,
+  excludeCurrency,  // O'tkazma "Ga" uchun — "Dan" tanlanganni yashirish
+}) => {
+  const list = (balances || []).filter(b => !excludeCurrency || b.currency !== excludeCurrency);
+  const selected = (balances || []).find(b => b.currency === selectedCurrency) || list[0];
+  const isOpen = openBalancePicker === pickerKey;
+
+  const fallbackEmoji = (cur) => {
+    const flagMap = { UZS: '🇺🇿', USD: '🇺🇸', RUB: '🇷🇺', KZT: '🇰🇿', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', CNY: '🇨🇳' };
+    return flagMap[cur] || '💰';
+  };
+
+  const renderRow = (b, isSelected, onClick, asTrigger = false) => {
+    const emoji = b?.emoji || fallbackEmoji(b?.currency);
+    const tint = b?.color ? `${b.color}26` : 'rgba(10,132,255,0.15)';
+    return (
+      <div
+        onClick={onClick}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: asTrigger ? '12px 14px' : '10px 12px',
+          borderRadius: asTrigger ? '12px' : '10px',
+          cursor: 'pointer',
+          background: asTrigger
+            ? 'var(--bg)'
+            : (isSelected ? 'rgba(10,132,255,0.12)' : 'transparent'),
+          border: asTrigger
+            ? `1px solid ${isOpen ? 'var(--primary)' : 'var(--border)'}`
+            : '1px solid transparent',
+          boxShadow: asTrigger && isOpen ? '0 0 0 3px var(--primary-glow, rgba(10,132,255,0.18))' : 'none',
+          transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+        onMouseEnter={(e) => {
+          if (!asTrigger && !isSelected) e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+        }}
+        onMouseLeave={(e) => {
+          if (!asTrigger && !isSelected) e.currentTarget.style.background = 'transparent';
+        }}
+      >
+        <span style={{
+          fontSize: '20px',
+          width: '38px',
+          height: '38px',
+          borderRadius: '11px',
+          background: tint,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}>{emoji}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{
+            fontWeight: 600,
+            fontSize: '14px',
+            color: 'var(--text-primary)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}>
+            {b?.title || b?.currency}
+            <span style={{ fontWeight: 400, color: 'var(--text-secondary)', fontSize: '12px', marginLeft: '6px' }}>
+              {b?.currency}
+            </span>
+          </div>
+          <div style={{
+            fontSize: '13px',
+            color: 'var(--text-secondary)',
+            fontVariantNumeric: 'tabular-nums',
+            marginTop: '2px',
+          }}>
+            {formatBalanceAmount(b?.amount || 0)} <span style={{ opacity: 0.7 }}>{b?.currency}</span>
+          </div>
+        </div>
+        {asTrigger
+          ? <ChevronDown size={18} color="var(--text-secondary)" style={{ flexShrink: 0, transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.25s var(--ease-smooth, ease)' }} />
+          : (isSelected ? <Check size={18} color="var(--primary)" style={{ flexShrink: 0 }} /> : null)
+        }
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      {/* Trigger button */}
+      {selected
+        ? renderRow(selected, false, () => setOpenBalancePicker(isOpen ? null : pickerKey), true)
+        : (
+          <div
+            onClick={() => setOpenBalancePicker(isOpen ? null : pickerKey)}
+            style={{
+              padding: '12px 14px',
+              borderRadius: '12px',
+              background: 'var(--bg)',
+              border: '1px solid var(--border)',
+              color: 'var(--text-secondary)',
+              cursor: 'pointer',
+              fontSize: '14px',
+            }}
+          >
+            Balans tanlanmagan
+          </div>
+        )
+      }
+
+      {/* Expanded list */}
+      {isOpen && list.length > 0 && (
+        <div style={{
+          marginTop: '8px',
+          background: 'var(--card-solid, var(--card))',
+          border: '1px solid var(--border)',
+          borderRadius: '14px',
+          padding: '4px',
+          maxHeight: '320px',
+          overflowY: 'auto',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+          animation: 'fadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}>
+          {list.map(b => renderRow(
+            b,
+            b.currency === selectedCurrency,
+            () => { onSelect(b.currency); setOpenBalancePicker(null); },
+            false,
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 import { fetchApi } from '../utils/api';
 import QrScanner from '../pages/QrScanner';
 
@@ -10,12 +159,15 @@ const QuickActions = ({ balances, onSuccess }) => {
   const [form, setForm] = useState({ amount: '', category: '', balanceId: '', note: '', person: '', dueDate: '', toBalanceId: '', currency: 'UZS', direction: 'berdim' });
   const [amountError, setAmountError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Qaysi balans dropdown ochilgan: 'from' | 'to' | null
+  const [openBalancePicker, setOpenBalancePicker] = useState(null);
 
   useEffect(() => {
     // Modal yopilganda barcha forma maydonlarini tozalash
     if (!activeModal) {
       setForm({ amount: '', category: '', balanceId: '', note: '', person: '', dueDate: '', toBalanceId: '', currency: 'UZS', direction: 'berdim' });
       setAmountError('');
+      setOpenBalancePicker(null);
       return;
     }
     // Modal ochilganda yangi forma + standart balanslar
@@ -299,26 +451,33 @@ const QuickActions = ({ balances, onSuccess }) => {
               {amountError && <p style={{ color: 'var(--danger)', fontSize: '12px', marginTop: '6px', margin: '6px 0 0 0' }}>{amountError}</p>}
             </div>
 
-            {/* ═══ Balance selector (kirim/chiqim/transfer) ═══ */}
+            {/* ═══ Balance picker (kirim/chiqim/transfer) — premium custom dropdown ═══ */}
             {activeModal !== 'qarz' && (
               <div style={fieldGroup}>
                 <div style={{ display: 'flex', flexDirection: activeModal === 'transfer' ? 'column' : 'row', gap: '12px' }}>
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <label style={labelStyle}>{activeModal === 'transfer' ? 'Dan (Balans)' : 'Balans'}</label>
-                    <select value={form.balanceId} onChange={e => setForm({...form, balanceId: e.target.value})}
-                      className="apple-input"
-                      style={selectStyle}>
-                      {balances?.map(b => <option key={b.currency} value={b.currency}>{b.title} ({b.currency})</option>)}
-                    </select>
+                    {renderBalancePicker({
+                      pickerKey: 'from',
+                      selectedCurrency: form.balanceId,
+                      onSelect: (cur) => setForm({...form, balanceId: cur}),
+                      balances,
+                      openBalancePicker,
+                      setOpenBalancePicker,
+                    })}
                   </div>
                   {activeModal === 'transfer' && (
-                    <div style={{ flex: 1 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <label style={labelStyle}>Ga (Balans)</label>
-                      <select value={form.toBalanceId} onChange={e => setForm({...form, toBalanceId: e.target.value})}
-                        className="apple-input"
-                        style={selectStyle}>
-                        {balances?.map(b => <option key={b.currency} value={b.currency}>{b.title} ({b.currency})</option>)}
-                      </select>
+                      {renderBalancePicker({
+                        pickerKey: 'to',
+                        selectedCurrency: form.toBalanceId,
+                        onSelect: (cur) => setForm({...form, toBalanceId: cur}),
+                        balances,
+                        openBalancePicker,
+                        setOpenBalancePicker,
+                        excludeCurrency: form.balanceId,
+                      })}
                     </div>
                   )}
                 </div>
