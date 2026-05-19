@@ -2958,6 +2958,32 @@ async def admin_delete_knowledge(request):
         return set_cors(web.json_response({"error": "Internal error"}, status=500))
 
 
+# ─── BLOCKED USERS ───
+
+@routes.get('/api/admin/blocked-users')
+async def admin_get_blocked_users(request):
+    """Botni bloklagan foydalanuvchilar ro'yxati (is_active=False)."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import users_collection
+        cursor = users_collection.find(
+            {"is_active": False},
+            {"_id": 0, "telegram_id": 1, "username": 1, "full_name": 1,
+             "phone_number": 1, "language": 1, "created_at": 1, "last_active": 1,
+             "registration_complete": 1}
+        ).sort("last_active", -1)
+        blocked = await cursor.to_list(length=5000)
+        for u in blocked:
+            if "created_at" in u and u["created_at"]:
+                u["created_at"] = u["created_at"].isoformat()
+            if "last_active" in u and u["last_active"]:
+                u["last_active"] = u["last_active"].isoformat()
+        return set_cors(web.json_response(blocked))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
 # ─── USER BAN / UNBAN ───
 
 @routes.post('/api/admin/users/{telegram_id}/ban')

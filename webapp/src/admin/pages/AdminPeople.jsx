@@ -1,15 +1,15 @@
 import React, { useState } from 'react';
-import { Users, Target } from 'lucide-react';
+import { Users, Target, UserX } from 'lucide-react';
 import AdminUsers from './AdminUsers';
 import AdminSegments from './AdminSegments';
+import AdminBlockedUsers from './AdminBlockedUsers';
 
 /**
- * AdminPeople — Foydalanuvchilar va Segmentatsiya bitta sahifada.
- * Tablar orqali o'tiladi (Users / Segments).
- * Mavjud AdminUsers va AdminSegments komponentlari reuse qilinadi.
+ * AdminPeople — Foydalanuvchilar, Segmentatsiya va Bloklanganlar bitta sahifada.
+ * Tablar orqali o'tiladi.
  */
 const AdminPeople = ({ token, navigateTo, ...rest }) => {
-  const [tab, setTab] = useState('users'); // 'users' | 'segments'
+  const [tab, setTab] = useState('users'); // 'users' | 'segments' | 'blocked'
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
@@ -41,6 +41,13 @@ const AdminPeople = ({ token, navigateTo, ...rest }) => {
             icon={<Target size={16} />}
             label="Segmentatsiya"
           />
+          <TabButton
+            active={tab === 'blocked'}
+            onClick={() => setTab('blocked')}
+            icon={<UserX size={16} />}
+            label="Bloklanganlar"
+            danger
+          />
         </div>
       </div>
 
@@ -48,12 +55,13 @@ const AdminPeople = ({ token, navigateTo, ...rest }) => {
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
         {tab === 'users' && <AdminUsers token={token} navigateTo={navigateTo} {...rest} />}
         {tab === 'segments' && <AdminSegments token={token} navigateTo={navigateTo} {...rest} />}
+        {tab === 'blocked' && <AdminBlockedUsers token={token} navigateTo={navigateTo} {...rest} />}
       </div>
     </div>
   );
 };
 
-const TabButton = ({ active, onClick, icon, label }) => (
+const TabButton = ({ active, onClick, icon, label, danger }) => (
   <button
     onClick={onClick}
     style={{
@@ -63,8 +71,10 @@ const TabButton = ({ active, onClick, icon, label }) => (
       padding: '8px 14px',
       borderRadius: '9px',
       border: 'none',
-      background: active ? 'var(--admin-primary)' : 'transparent',
-      color: active ? '#fff' : 'var(--admin-text-secondary)',
+      background: active
+        ? (danger ? '#ef4444' : 'var(--admin-primary)')
+        : 'transparent',
+      color: active ? '#fff' : (danger ? '#ef4444' : 'var(--admin-text-secondary)'),
       fontSize: '13px',
       fontWeight: 600,
       cursor: 'pointer',
