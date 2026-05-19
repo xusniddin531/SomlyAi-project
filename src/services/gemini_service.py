@@ -10,7 +10,6 @@ Features:
 """
 
 import json
-import os
 import logging
 import asyncio
 import itertools
@@ -386,83 +385,6 @@ class GeminiService:
         except Exception as e:
             logger.error(f"Gemini Stream Error: {e}")
             yield "Xatolik: Tizim hozircha javob bera olmaydi."
-
-    async def transcribe_audio_with_retry(self, file_path: str, user_id: int = 0) -> str:
-        if not os.path.exists(file_path):
-            raise GeminiInvalidAudioError(f"Audio file missing: {file_path}")
-
-        file_size = os.path.getsize(file_path)
-        fname = os.path.basename(file_path)
-        
-        if file_size == 0:
-            raise GeminiInvalidAudioError(f"Audio file empty: {file_path}")
-
-        if not self.clients:
-            raise GeminiServerError("Gemini Client not initialized")
-
-        prompt = "Iltimos, ushbu audioni diqqat bilan eshitib, so'zma-so'z matnga o'giring. Faqat eshitilgan matnni yozing, izoh yoki boshqa narsa qo'shmang."
-        ext = fname.rsplit('.', 1)[-1].lower() if '.' in fname else 'ogg'
-        mime_map = {'ogg': 'audio/ogg', 'oga': 'audio/ogg', 'mp3': 'audio/mpeg',
-                    'wav': 'audio/wav', 'm4a': 'audio/mp4', 'mp4': 'audio/mp4',
-                    'webm': 'audio/webm', 'flac': 'audio/flac'}
-        mime_type = mime_map.get(ext, 'audio/ogg')
-        INLINE_LIMIT = 20 * 1024 * 1024
-
-        # Bitta kalit holatda ham 429 ushlansa biroz kutib qayta urinamiz.
-        BACKOFF_SECONDS = [13, 20]
-        last_exception = None
-        n_clients = max(1, len(self.clients))
-
-        for cycle, wait_before in enumerate([0, *BACKOFF_SECONDS]):
-            if wait_before:
-                logger.warning(
-                    f"Audio: all {n_clients} key(s) rate limited. Sleeping {wait_before}s before retry cycle {cycle+1}."
-                )
-                await asyncio.sleep(wait_before)
-
-            for _ in range(n_clients):
-                client = self._get_next_client()
-                myfile = None
-                try:
-                    if file_size <= INLINE_LIMIT:
-                        with open(file_path, 'rb') as f:
-                            audio_bytes = f.read()
-
-                        response = await asyncio.to_thread(
-                            client.models.generate_content,
-                            model=self.active_model,
-                            contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt],
-                            config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-                        )
-                    else:
-                        myfile = await asyncio.to_thread(client.files.upload, file=file_path)
-                        response = await asyncio.to_thread(
-                            client.models.generate_content,
-                            model=self.active_model,
-                            contents=[myfile, prompt],
-                            config=types.GenerateContentConfig(safety_settings=self.safe_settings)
-                        )
-
-                    text = _safe_extract_text(response).strip()
-                    await _record_ai_usage(user_id, response)
-                    return text
-                except Exception as e:
-                    err_str = str(e)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        logger.warning(f"Audio rate limited (429). Cycle {cycle+1}. Error: {e}")
-                        last_exception = e
-                        continue
-                    else:
-                        logger.error(f"Gemini Audio error: {e}")
-                        raise GeminiServerError(f"Audio processing error: {e}")
-                finally:
-                    if myfile is not None:
-                        try:
-                            await asyncio.to_thread(client.files.delete, name=myfile.name)
-                        except Exception:
-                            pass
-
-        raise GeminiAllKeysExhaustedError(f"All keys exhausted for audio after retries. Last error: {last_exception}")
 
     # ═══════════════════════════════════════
     # ISMNI AJRATIB OLISH (ovozdan)
