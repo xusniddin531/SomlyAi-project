@@ -115,7 +115,7 @@ async def process_voice_message(message: Message, bot: Bot, state: FSMContext):
         # transcribe natijasi (matn) AI prompt'ga kerak — context fetch transcribe
         # tugashidan oldin handle_transaction_text ichida boshlanadi (asyncio.gather).
         try:
-            transcribed_text = await gemini_service.transcribe_audio_with_retry(local_path)
+            transcribed_text = await gemini_service.transcribe_audio_with_retry(local_path, user_id=user_id)
         except WhisperAllKeysExhaustedError as e:
             # Bitta kalit Free Tier limitiga urindi (retry+backoff'dan keyin ham) —
             # "biroz kuting" ko'rsatamiz, "ishlamayapti" emas.

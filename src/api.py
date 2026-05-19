@@ -2958,6 +2958,39 @@ async def admin_delete_knowledge(request):
         return set_cors(web.json_response({"error": "Internal error"}, status=500))
 
 
+# ─── AI TOP CONSUMERS ───
+
+@routes.get('/api/admin/ai-top-consumers')
+async def admin_ai_top_consumers(request):
+    """Eng ko'p AI tokenini sarflagan foydalanuvchilar (Top N)."""
+    if not _verify_admin_token(request):
+        return set_cors(web.json_response({"error": "Unauthorized"}, status=401))
+    try:
+        from src.database import users_collection
+        limit = min(int(request.query.get("limit", 10)), 100)
+        cursor = users_collection.find(
+            {"ai_usage.total_tokens": {"$gt": 0}},
+            {"_id": 0, "telegram_id": 1, "full_name": 1, "username": 1, "ai_usage": 1}
+        ).sort("ai_usage.total_tokens", -1).limit(limit)
+        rows = []
+        async for u in cursor:
+            au = u.get("ai_usage", {})
+            last_used = au.get("last_used")
+            rows.append({
+                "telegram_id": u["telegram_id"],
+                "full_name": u.get("full_name") or "—",
+                "username": u.get("username"),
+                "total_tokens": au.get("total_tokens", 0),
+                "prompt_tokens": au.get("prompt_tokens", 0),
+                "output_tokens": au.get("output_tokens", 0),
+                "request_count": au.get("request_count", 0),
+                "last_used": last_used.isoformat() if last_used else None,
+            })
+        return set_cors(web.json_response({"users": rows}))
+    except Exception as e:
+        return set_cors(web.json_response({"error": str(e)}, status=500))
+
+
 # ─── BLOCKED USERS ───
 
 @routes.get('/api/admin/blocked-users')

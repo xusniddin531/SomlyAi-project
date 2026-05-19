@@ -84,6 +84,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 const AdminDashboard = ({ token }) => {
   const [stats, setStats] = useState(null);
   const [segments, setSegments] = useState(null);
+  const [aiTop, setAiTop] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -102,13 +103,19 @@ const AdminDashboard = ({ token }) => {
 
   const fetchData = async () => {
     try {
-      const [statsRes, segmentsRes] = await Promise.all([
-        fetch('/api/admin/dashboard', { headers: { Authorization: `Bearer ${token}` } }),
-        fetch('/api/admin/segments', { headers: { Authorization: `Bearer ${token}` } })
+      const headers = { Authorization: `Bearer ${token}` };
+      const [statsRes, segmentsRes, aiTopRes] = await Promise.all([
+        fetch('/api/admin/dashboard', { headers }),
+        fetch('/api/admin/segments', { headers }),
+        fetch('/api/admin/ai-top-consumers?limit=10', { headers }),
       ]);
-      
+
       setStats(await statsRes.json());
       setSegments(await segmentsRes.json());
+      if (aiTopRes.ok) {
+        const aiData = await aiTopRes.json();
+        setAiTop(aiData.users || []);
+      }
     } catch (e) {
       console.error(e);
     }
@@ -368,6 +375,48 @@ const AdminDashboard = ({ token }) => {
             <span>💡 Reklama uchun tavsiya: <strong>{stats.global_best_hour}:00 — {(stats.global_best_hour + 1) % 24}:00</strong></span>
           </div>
         )}
+      </div>
+
+      {/* AI TOP CONSUMERS */}
+      <div className="card mt20">
+        <h3>🤖 AI Token Sarflovchilar (Top 10)</h3>
+        <p style={{ margin: '-4px 0 12px', fontSize: '13px', color: 'var(--admin-text-secondary)' }}>
+          Eng ko'p Gemini tokenini ishlatgan foydalanuvchilar
+        </p>
+        <table className="admin-table" style={{ width: '100%' }}>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Foydalanuvchi</th>
+              <th style={{ textAlign: 'right' }}>Jami token</th>
+              <th style={{ textAlign: 'right' }}>So'rovlar</th>
+              <th style={{ textAlign: 'right' }}>Oxirgi</th>
+            </tr>
+          </thead>
+          <tbody>
+            {aiTop.map((u, i) => (
+              <tr key={u.telegram_id}>
+                <td style={{ opacity: 0.5 }}>{i + 1}</td>
+                <td>
+                  <div>{u.full_name || '—'}{u.username ? <span style={{ color: 'var(--admin-primary)', marginLeft: 4 }}>@{u.username}</span> : null}</div>
+                  <div style={{ fontSize: '11px', opacity: 0.5 }}>ID: {u.telegram_id}</div>
+                </td>
+                <td style={{ textAlign: 'right', fontWeight: 600 }}>{u.total_tokens.toLocaleString()}</td>
+                <td style={{ textAlign: 'right', opacity: 0.7 }}>{u.request_count}</td>
+                <td style={{ textAlign: 'right', opacity: 0.6, fontSize: '12px' }}>
+                  {u.last_used ? new Date(u.last_used).toLocaleDateString() : '—'}
+                </td>
+              </tr>
+            ))}
+            {aiTop.length === 0 && (
+              <tr>
+                <td colSpan={5} style={{ textAlign: 'center', opacity: 0.4, padding: '16px 0' }}>
+                  Hozircha ma'lumot yo'q
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* RECENT EVENTS */}

@@ -13,7 +13,6 @@ import json
 import os
 import logging
 import asyncio
-import time
 import itertools
 from datetime import datetime
 from typing import List, Dict, Any
@@ -98,28 +97,39 @@ def _safe_extract_text(response) -> str:
         except Exception as e:
             raise GeminiServerError(f"Failed to extract Gemini text: {e}")
 
-logger = logging.getLogger(__name__)
 
-# User request limit
-gemini_user_requests = {}
-GEMINI_USER_LIMIT_1M = 20
-
-def check_gemini_limit(user_id: int) -> bool:
-    """Returns True if allowed, False if exceeded limit."""
+async def _record_ai_usage(user_id: int, response) -> None:
+    """Gemini response'dagi token sarfini foydalanuvchi hujjatiga yozadi."""
     if not user_id:
-        return True
-    now = time.time()
-    if user_id not in gemini_user_requests:
-        gemini_user_requests[user_id] = []
-    
-    # Clean old requests (> 60s)
-    gemini_user_requests[user_id] = [ts for ts in gemini_user_requests[user_id] if now - ts <= 60]
-    
-    if len(gemini_user_requests[user_id]) >= GEMINI_USER_LIMIT_1M:
-        return False
-        
-    gemini_user_requests[user_id].append(now)
-    return True
+        return
+    try:
+        um = getattr(response, "usage_metadata", None)
+        if not um:
+            return
+        prompt_t = getattr(um, "prompt_token_count", 0) or 0
+        cand_t = getattr(um, "candidates_token_count", 0) or 0
+        total_t = getattr(um, "total_token_count", 0) or (prompt_t + cand_t)
+        if total_t <= 0:
+            return
+        from src.database import users_collection
+        await users_collection.update_one(
+            {"telegram_id": user_id},
+            {
+                "$inc": {
+                    "ai_usage.total_tokens": total_t,
+                    "ai_usage.prompt_tokens": prompt_t,
+                    "ai_usage.output_tokens": cand_t,
+                    "ai_usage.request_count": 1,
+                },
+                "$set": {"ai_usage.last_used": datetime.utcnow()},
+            },
+            upsert=False,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"AI usage record failed for {user_id}: {e}")
+
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiServerError(Exception):
@@ -248,7 +258,9 @@ class GeminiService:
     async def chat_completion_with_retry(self, messages: List[Dict], **kwargs) -> str:
         if not self.clients:
             raise GeminiServerError("Gemini Client not initialized")
-            
+
+        user_id: int = kwargs.pop("user_id", 0)
+
         system_instruction, history = self._convert_messages_to_gemini(messages)
 
         config_dict = {"safety_settings": self.safe_settings}
@@ -258,7 +270,7 @@ class GeminiService:
             config_dict["temperature"] = kwargs["temperature"]
         if kwargs.get("max_tokens") is not None:
             config_dict["max_output_tokens"] = kwargs["max_tokens"]
-            
+
         response_format = kwargs.get("response_format")
         if response_format and response_format.get("type") == "json_object":
             config_dict["response_mime_type"] = "application/json"
@@ -304,7 +316,9 @@ class GeminiService:
                             config=types.GenerateContentConfig(**config_dict)
                         )
 
-                    return _safe_extract_text(response)
+                    text = _safe_extract_text(response)
+                    await _record_ai_usage(user_id, response)
+                    return text
                 except Exception as e:
                     err_str = str(e)
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
@@ -373,7 +387,7 @@ class GeminiService:
             logger.error(f"Gemini Stream Error: {e}")
             yield "Xatolik: Tizim hozircha javob bera olmaydi."
 
-    async def transcribe_audio_with_retry(self, file_path: str) -> str:
+    async def transcribe_audio_with_retry(self, file_path: str, user_id: int = 0) -> str:
         if not os.path.exists(file_path):
             raise GeminiInvalidAudioError(f"Audio file missing: {file_path}")
 
@@ -429,7 +443,9 @@ class GeminiService:
                             config=types.GenerateContentConfig(safety_settings=self.safe_settings)
                         )
 
-                    return _safe_extract_text(response).strip()
+                    text = _safe_extract_text(response).strip()
+                    await _record_ai_usage(user_id, response)
+                    return text
                 except Exception as e:
                     err_str = str(e)
                     if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
@@ -509,10 +525,6 @@ class GeminiService:
     # ═══════════════════════════════════════
     async def parse_transaction(self, text: str, current_date_str: str, language: str = "uz", custom_categories: list = None, user_id: int = 0, user_context: dict = None, recent_txs: str = "", habits: dict = None, all_balances: list = None, chat_history: list = None) -> Dict[str, Any]:
         
-        if user_id and not check_gemini_limit(user_id):
-            logger.warning(f"User {user_id} hit Gemini API 20/min limit.")
-            return {"intent": "error", "error_key": "err_ai_busy"}
-
         current_time = datetime.now().strftime("%H:%M")
         balances_text = ", ".join(all_balances) if all_balances else "So'm, Dollar"
         lang_map = {"uz": "O'zbek", "en": "English", "ru": "Русский"}
@@ -643,6 +655,7 @@ mini_app_actions QOIDA: faqat MINI APP'da va aniq so'rovda bo'sh emas. Bot suhba
                 response_format={"type": "json_object"},
                 temperature=0.1,
                 max_tokens=1500,
+                user_id=user_id,
             )
         except GeminiAllKeysExhaustedError:
             # Inner retry+backoff tugadi. Yana kutkazmaymiz — foydalanuvchi qayta yuborsin.
@@ -832,9 +845,6 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
         user_id: int = 0
     ) -> dict:
         
-        if user_id and not check_gemini_limit(user_id):
-            return {"category": "Boshqa xarajat", "emoji": "📦", "confidence": 0.3}
-        
         if not description or len(description) < 2:
             return {"category": "Boshqa xarajat", "emoji": "📦", "confidence": 0.2}
         
@@ -865,10 +875,11 @@ Faqat maslahat matnini qaytar, boshqa hech qanday so'z qo'shma.
         
         try:
             result = await self.chat_completion_with_retry(
-                messages, 
+                messages,
                 response_format={"type": "json_object"},
-                temperature=0.3, 
-                max_tokens=100
+                temperature=0.3,
+                max_tokens=100,
+                user_id=user_id,
             )
             
             data = json.loads(result)

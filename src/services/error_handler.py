@@ -187,10 +187,18 @@ async def safe_send_message(bot, chat_id: int, text: str, **kwargs):
             )
             return False
         except TelegramBadRequest as e:
-            if "message is too long" in str(e).lower():
+            err_lower = str(e).lower()
+            if "message is too long" in err_lower:
                 log_error(ErrorType.TELEGRAM_MESSAGE_TOO_LONG, f"Message too long for {chat_id}", chat_id)
-                # This shouldn't happen since we split, but just in case
                 await bot.send_message(chat_id, chunk[:4000] + "\n\n... (xabar qisqartirildi)", **kwargs)
+            elif "chat not found" in err_lower or "user is deactivated" in err_lower:
+                log_error(ErrorType.TELEGRAM_BLOCKED, f"Chat not found / deactivated for {chat_id}", chat_id)
+                from src.database import users_collection
+                await users_collection.update_one(
+                    {"telegram_id": chat_id},
+                    {"$set": {"is_active": False}}
+                )
+                return False
             else:
                 raise
         except TelegramRetryAfter as e:

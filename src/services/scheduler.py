@@ -13,6 +13,7 @@ from src.database import (
     get_webapp_url
 )
 from src.config import ADMIN_ID
+from src.services.error_handler import safe_send_message
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def format_number(num: float) -> str:
 # ERTALABGI ESLATMA (09:00)
 # ═══════════════════════════════════════
 async def check_morning_reminders(bot: Bot):
-    cursor = users_collection.find({"settings.morning_reminder": True})
+    cursor = users_collection.find({"settings.morning_reminder": True, "is_active": True})
     users = await cursor.to_list(length=10000)
 
     for user in users:
@@ -44,22 +45,19 @@ async def check_morning_reminders(bot: Bot):
             f"Kuningiz hisobli o'tsin!\n"
             f"Xarajatlaringizni yuritishni unutmang 😇"
         )
-        try:
-            await bot.send_message(chat_id=telegram_id, text=msg)
-        except Exception as e:
-            logger.error(f"Morning reminder error for {telegram_id}: {e}")
+        await safe_send_message(bot, telegram_id, msg)
 
 
 # ═══════════════════════════════════════
 # KUNDUZGI ESLATMA (15:00)
 # ═══════════════════════════════════════
 async def check_evening_reminders(bot: Bot):
-    cursor = users_collection.find({"settings.evening_reminder": True})
+    cursor = users_collection.find({"settings.evening_reminder": True, "is_active": True})
     users = await cursor.to_list(length=10000)
 
     for user in users:
         telegram_id = user["telegram_id"]
-        
+
         msg = (
             f"💬 Somly AI aloqada.\n"
             f"Ertalabdan hozirgacha bo'lgan\n"
@@ -67,10 +65,7 @@ async def check_evening_reminders(bot: Bot):
             f"Esingizdan chiqmasidan yuborib \n"
             f"qo'ying. Bunga 30 soniya yetarli."
         )
-        try:
-            await bot.send_message(chat_id=telegram_id, text=msg)
-        except Exception as e:
-            logger.error(f"Evening reminder error for {telegram_id}: {e}")
+        await safe_send_message(bot, telegram_id, msg)
 
 
 # ═══════════════════════════════════════
@@ -86,7 +81,7 @@ async def check_monthly_summary(bot: Bot):
     months_uz = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"]
     month_name = months_uz[last_month.month - 1]
 
-    cursor = users_collection.find({})
+    cursor = users_collection.find({"is_active": True})
     users = await cursor.to_list(length=10000)
 
     for user in users:
@@ -163,10 +158,7 @@ async def check_monthly_summary(bot: Bot):
         except Exception as e:
             logger.error(f"Monthly advice error for {telegram_id}: {e}")
 
-        try:
-            await bot.send_message(chat_id=telegram_id, text=msg)
-        except Exception as e:
-            pass
+        await safe_send_message(bot, telegram_id, msg)
 
 
 # ═══════════════════════════════════════
@@ -248,18 +240,19 @@ async def check_debt_reminders(bot: Bot):
                 )
 
         if msg:
-            try:
-                if not keyboard:
-                    # Oddiy eslatma uchun ham tugmalar
-                    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-                        [
-                            InlineKeyboardButton(text="✅ Qaytdi", callback_data=f"debt_paid:{debt_id}"),
-                            InlineKeyboardButton(text="⏰ Uzayt", callback_data=f"debt_not_paid:{debt_id}")
-                        ]
-                    ])
-                await bot.send_message(chat_id=telegram_id, text=msg, reply_markup=keyboard)
-            except Exception as e:
-                pass
+            active_user = await users_collection.find_one(
+                {"telegram_id": telegram_id, "is_active": True}, {"_id": 1}
+            )
+            if not active_user:
+                continue
+            if not keyboard:
+                keyboard = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="✅ Qaytdi", callback_data=f"debt_paid:{debt_id}"),
+                        InlineKeyboardButton(text="⏰ Uzayt", callback_data=f"debt_not_paid:{debt_id}")
+                    ]
+                ])
+            await safe_send_message(bot, telegram_id, msg, reply_markup=keyboard)
 
 
 # ═══════════════════════════════════════
@@ -700,11 +693,9 @@ async def check_pending_reminders(bot: Bot):
         
         kb = build_reminder_keyboard(reminder_id)
         
-        try:
-            await bot.send_message(chat_id=user_id, text=text, reply_markup=kb)
+        success = await safe_send_message(bot, user_id, text, reply_markup=kb)
+        if success:
             await update_reminder_status(reminder_id, "reminded")
-        except Exception as e:
-            logger.error(f"Failed to send reminder {reminder_id}: {e}")
     logger.info("Scheduler started — Cron jobs loaded.")
     logger.info("📅 Morning reminders at 09:00, Evening reminders at 15:00, Daily reports at 23:00, Currency updates every 1 hr.")
 
@@ -721,7 +712,7 @@ async def check_daily_reports(bot: Bot):
     today_end = datetime.utcnow().replace(hour=23, minute=59, second=59, microsecond=999999)
     today_date = datetime.utcnow().strftime("%d.%m.%Y")
 
-    cursor = users_collection.find({})
+    cursor = users_collection.find({"is_active": True})
     users = await cursor.to_list(length=10000)
 
     for user in users:
@@ -859,11 +850,9 @@ async def check_daily_reports(bot: Bot):
 
             msg = "\n".join(msg_parts)
 
-            try:
-                await bot.send_message(chat_id=telegram_id, text=msg)
+            success = await safe_send_message(bot, telegram_id, msg)
+            if success:
                 logger.info(f"Daily report sent to {telegram_id}")
-            except Exception as e:
-                logger.error(f"Failed to send daily report to {telegram_id}: {e}")
 
         except Exception as e:
             logger.error(f"Error generating daily report for {telegram_id}: {e}")
